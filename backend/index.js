@@ -9,8 +9,8 @@ const PORT = process.env.PORT || 3000;
 app.use(cors());
 
 // แก้ไข 2 บรรทัดนี้เพื่อขยายให้รองรับไฟล์รูปภาพขนาดใหญ่ (50MB)
-app.use(express.json({ limit: '50mb' }));
-app.use(express.urlencoded({ limit: '50mb', extended: true }));
+app.use(express.json({ limit: '1000mb' }));
+app.use(express.urlencoded({ limit: '1000mb', extended: true }));
 
 
 // ---------------------------------------------------------------------------
