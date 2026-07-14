@@ -1,0 +1,58 @@
+version: "3.9"
+
+# Production compose file: pulls pre-built images from Docker Hub
+# instead of building from local source. Replace <DOCKERHUB_USERNAME>
+# with the actual Docker Hub namespace where images were pushed by CI/CD.
+
+services:
+  postgres:
+    image: postgres:16-alpine
+    container_name: marketplace_postgres
+    restart: unless-stopped
+    environment:
+      POSTGRES_USER: ${POSTGRES_USER:-marketplace_user}
+      POSTGRES_PASSWORD: ${POSTGRES_PASSWORD:-marketplace_pass}
+      POSTGRES_DB: ${POSTGRES_DB:-marketplace_db}
+    volumes:
+      - pgdata:/var/lib/postgresql/data
+    healthcheck:
+      test: ["CMD-SHELL", "pg_isready -U ${POSTGRES_USER:-marketplace_user} -d ${POSTGRES_DB:-marketplace_db}"]
+      interval: 5s
+      timeout: 5s
+      retries: 10
+    networks:
+      - marketplace_net
+
+  backend:
+    image: <DOCKERHUB_USERNAME>/marketplace-backend:latest
+    container_name: marketplace_backend
+    restart: unless-stopped
+    environment:
+      NODE_ENV: production
+      PORT: 3000
+      DATABASE_URL: postgres://${POSTGRES_USER:-marketplace_user}:${POSTGRES_PASSWORD:-marketplace_pass}@postgres:5432/${POSTGRES_DB:-marketplace_db}
+    ports:
+      - "3000:3000"
+    depends_on:
+      postgres:
+        condition: service_healthy
+    networks:
+      - marketplace_net
+
+  frontend:
+    image: <DOCKERHUB_USERNAME>/marketplace-frontend:latest
+    container_name: marketplace_frontend
+    restart: unless-stopped
+    ports:
+      - "80:80"
+    depends_on:
+      - backend
+    networks:
+      - marketplace_net
+
+networks:
+  marketplace_net:
+    driver: bridge
+
+volumes:
+  pgdata:
