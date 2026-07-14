@@ -200,6 +200,14 @@
               <div class="battery__gauge"><div class="battery__fill" :style="{ width: item.battery_health + '%' }" :class="batteryClass(item.battery_health)"></div></div>
             </div>
             <p v-if="item.defects" class="card__defects">ตำหนิ: {{ item.defects }}</p>
+            
+            <!-- ============ 3 ปุ่มหลักที่เพิ่มเข้ามา ============ -->
+            <div class="card__actions">
+              <button class="btn btn--success btn--sm flex-1" @click="openBuy(item)">🛒 สั่งซื้อ</button>
+              <button class="btn btn--warning btn--sm" @click="openEdit(item)">✏️ แก้ไข</button>
+              <button class="btn btn--danger btn--sm" @click="openDelete(item)">🗑️ ลบ</button>
+            </div>
+
             <div class="card__footer">
               <span class="card__seller">ผู้ขาย: {{ item.seller_name }}</span>
               <button class="btn btn--ghost btn--sm" @click="openReview(item)">⭐ ให้คะแนนผู้ขาย</button>
@@ -208,6 +216,139 @@
         </div>
       </section>
     </main>
+
+    <!-- ============ UI MODAL: ปุ่มสั่งซื้อ ============ -->
+    <div v-if="buyTarget" class="modal-backdrop" @click.self="buyTarget = null">
+      <div class="modal">
+        <h3 class="panel__title">🛒 ยืนยันการสั่งซื้อสินค้า</h3>
+        <p class="modal__desc">
+          คุณกำลังทำรายการสั่งซื้อเครื่อง <strong>{{ buyTarget.brand }}</strong> <br>
+          ราคา: <strong class="text-accent">฿{{ Number(buyTarget.price).toLocaleString() }}</strong>
+        </p>
+        <form class="form" @submit.prevent="submitBuy">
+          <label class="field">
+            <span class="field__label">ชื่อ-นามสกุล ผู้ซื้อ *</span>
+            <input class="field__input" v-model="buyForm.buyerName" required placeholder="เช่น สมเกียรติ รักเรียน" />
+          </label>
+          <label class="field">
+            <span class="field__label">เบอร์โทรศัพท์ติดต่อ *</span>
+            <input class="field__input" v-model="buyForm.phone" required placeholder="เช่น 089xxxxxxx" />
+          </label>
+          <label class="field">
+            <span class="field__label">วิธีการรับสินค้า *</span>
+            <select class="field__input" v-model="buyForm.deliveryMethod" required>
+              <option value="pickup">นัดรับสินค้า ณ จังหวัด {{ buyTarget.province }}</option>
+              <option value="shipping">จัดส่งพัสดุด่วนทั่วประเทศ</option>
+            </select>
+          </label>
+          <div class="modal__actions">
+            <button type="button" class="btn btn--ghost" @click="buyTarget = null">ยกเลิก</button>
+            <button type="submit" class="btn btn--success" :disabled="buyLoading">
+              {{ buyLoading ? 'กำลังประมวลผล...' : 'ยืนยันการซื้อ' }}
+            </button>
+          </div>
+          <p v-if="buyMessage" :class="['formmsg', buyError ? 'formmsg--error' : 'formmsg--ok']">{{ buyMessage }}</p>
+        </form>
+      </div>
+    </div>
+
+    <!-- ============ UI MODAL: ปุ่มแก้ไข ============ -->
+    <div v-if="editTarget" class="modal-backdrop" @click.self="editTarget = null">
+      <div class="modal modal--large">
+        <h3 class="panel__title">✏️ แก้ไขข้อมูลสินค้า</h3>
+        <p class="modal__desc">อัปเดตสเปคเครื่องหรือราคาขายของ {{ editTarget.brand }}</p>
+        <form class="form" @submit.prevent="submitEdit">
+          <div class="form__row">
+            <label class="field">
+              <span class="field__label">แบรนด์ *</span>
+              <input class="field__input" v-model="editForm.brand" required />
+            </label>
+            <label class="field">
+              <span class="field__label">ราคา (บาท) *</span>
+              <input class="field__input" type="number" min="0" v-model.number="editForm.price" required />
+            </label>
+          </div>
+
+          <div class="form__row">
+            <label class="field">
+              <span class="field__label">CPU *</span>
+              <input class="field__input" v-model="editForm.cpu" required />
+            </label>
+            <label class="field">
+              <span class="field__label">RAM *</span>
+              <input class="field__input" v-model="editForm.ram" required />
+            </label>
+            <label class="field">
+              <span class="field__label">การ์ดจอ *</span>
+              <input class="field__input" v-model="editForm.gpu" required />
+            </label>
+          </div>
+
+          <div class="form__row">
+            <label class="field">
+              <span class="field__label">สุขภาพแบตเตอรี่: {{ editForm.batteryHealth }}%</span>
+              <input class="field__range" type="range" min="0" max="100" v-model.number="editForm.batteryHealth" />
+            </label>
+            <label class="field">
+              <span class="field__label">ประเภทการใช้งาน *</span>
+              <select class="field__input" v-model="editForm.usageType" required>
+                <option value="gaming">เล่นเกม</option>
+                <option value="office">ทำงานทั่วไป</option>
+                <option value="design">งานกราฟิก/ตัดต่อ</option>
+                <option value="programming">เขียนโปรแกรม</option>
+              </select>
+            </label>
+            <label class="field">
+              <span class="field__label">จังหวัด (สำหรับนัดรับสินค้า) *</span>
+              <input class="field__input" v-model="editForm.province" required />
+            </label>
+          </div>
+
+          <label class="field">
+            <span class="field__label">ตำหนิของเครื่อง</span>
+            <textarea class="field__input field__textarea" v-model="editForm.defects"></textarea>
+          </label>
+
+          <label class="field">
+            <span class="field__label">📸 รูปถ่ายหน้าจอตอนเปิดใช้งาน (ถ้าต้องการแก้ไข)</span>
+            <input class="field__file" type="file" accept="image/*" @change="onFileChange($event, 'bootScreenPhotoUrl', editForm)" />
+            <div v-if="editForm.bootScreenPhotoUrl" class="terminal-frame">
+              <div class="terminal-frame__bar">
+                <span class="dotbtn dotbtn--red"></span><span class="dotbtn dotbtn--yellow"></span><span class="dotbtn dotbtn--green"></span>
+                <span class="terminal-frame__label">boot-screen.png</span>
+              </div>
+              <img :src="editForm.bootScreenPhotoUrl" class="terminal-frame__img" alt="boot screen preview" />
+            </div>
+          </label>
+
+          <div class="modal__actions">
+            <button type="button" class="btn btn--ghost" @click="editTarget = null">ยกเลิก</button>
+            <button type="submit" class="btn btn--warning" :disabled="editLoading">
+              {{ editLoading ? 'กำลังบันทึก...' : 'บันทึกความเปลี่ยนแปลง' }}
+            </button>
+          </div>
+          <p v-if="editMessage" :class="['formmsg', editError ? 'formmsg--error' : 'formmsg--ok']">{{ editMessage }}</p>
+        </form>
+      </div>
+    </div>
+
+    <!-- ============ UI MODAL: ปุ่มลบ ============ -->
+    <div v-if="deleteTarget" class="modal-backdrop" @click.self="deleteTarget = null">
+      <div class="modal">
+        <h3 class="panel__title" style="color: var(--danger);">🗑️ ยืนยันการลบรายการสินค้า</h3>
+        <p class="modal__desc" style="margin-top: 15px; font-size: 14px;">
+          คุณแน่ใจหรือไม่ที่จะลบเครื่อง <strong>{{ deleteTarget.brand }}</strong> ราคา <strong>฿{{ Number(deleteTarget.price).toLocaleString() }}</strong> ?<br>
+          <span style="color: var(--danger); font-size: 12px; display: block; margin-top: 8px;">*การทำรายการนี้ไม่สามารถกู้คืนข้อมูลได้</span>
+        </p>
+        <div class="modal__actions" style="margin-top: 20px;">
+          <button type="button" class="btn btn--ghost" @click="deleteTarget = null">ยกเลิก</button>
+          <button type="button" class="btn btn--danger" @click="submitDelete" :disabled="deleteLoading">
+            {{ deleteLoading ? 'กำลังลบ...' : 'ยืนยันลบข้อมูล' }}
+          </button>
+        </div>
+        <p v-if="deleteMessage" :class="['formmsg', deleteError ? 'formmsg--error' : 'formmsg--ok']" style="margin-top: 15px;">{{ deleteMessage }}</p>
+      </div>
+    </div>
 
     <!-- ============ REVIEW MODAL ============ -->
     <div v-if="reviewTarget" class="modal-backdrop" @click.self="reviewTarget = null">
@@ -275,6 +416,30 @@ const reviewForm = reactive({ buyerName: '', rating: 5, comment: '' });
 const reviewLoading = ref(false);
 const reviewMessage = ref('');
 const reviewError = ref(false);
+
+// === State & Form: สั่งซื้อ ===
+const buyTarget = ref(null);
+const buyForm = reactive({ buyerName: '', phone: '', deliveryMethod: 'pickup' });
+const buyLoading = ref(false);
+const buyMessage = ref('');
+const buyError = ref(false);
+
+// === State & Form: แก้ไข ===
+const editTarget = ref(null);
+const editForm = reactive({
+  brand: '', cpu: '', ram: '', gpu: '',
+  batteryHealth: 80, defects: '', price: null,
+  usageType: '', province: '', bootScreenPhotoUrl: ''
+});
+const editLoading = ref(false);
+const editMessage = ref('');
+const editError = ref(false);
+
+// === State: ลบ ===
+const deleteTarget = ref(null);
+const deleteLoading = ref(false);
+const deleteMessage = ref('');
+const deleteError = ref(false);
 
 function usageLabel(v) {
   const map = { gaming: 'เล่นเกม', office: 'ทำงานทั่วไป', design: 'งานกราฟิก/ตัดต่อ', programming: 'เขียนโปรแกรม' };
@@ -401,6 +566,117 @@ async function submitReview() {
   }
 }
 
+// === Logic: ปุ่มสั่งซื้อ ===
+function openBuy(item) {
+  buyTarget.value = item;
+  buyForm.buyerName = '';
+  buyForm.phone = '';
+  buyForm.deliveryMethod = 'pickup';
+  buyMessage.value = '';
+  buyError.value = false;
+}
+
+async function submitBuy() {
+  buyLoading.value = true;
+  buyMessage.value = '';
+  buyError.value = false;
+  try {
+    const res = await fetch(`${apiBase}/api/listings/${buyTarget.value.id}/buy`, {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify(buyForm)
+    });
+    const data = await res.json();
+    if (!res.ok) throw new Error(data.error || 'ไม่สามารถสั่งซื้อสินค้าได้');
+    buyMessage.value = 'สั่งซื้อเสร็จสมบูรณ์! ระบบจำลองข้อมูลการซื้อเรียบร้อยแล้ว';
+    setTimeout(() => {
+      buyTarget.value = null;
+      fetchListings();
+    }, 1500);
+  } catch (err) {
+    buyError.value = true;
+    buyMessage.value = err.message;
+  } finally {
+    buyLoading.value = false;
+  }
+}
+
+// === Logic: ปุ่มแก้ไข ===
+function openEdit(item) {
+  editTarget.value = item;
+  Object.assign(editForm, {
+    brand: item.brand,
+    cpu: item.cpu,
+    ram: item.ram,
+    gpu: item.gpu,
+    batteryHealth: item.battery_health,
+    defects: item.defects || '',
+    price: item.price,
+    usageType: item.usage_type,
+    province: item.province,
+    bootScreenPhotoUrl: item.boot_screen_photo_url
+  });
+  editMessage.value = '';
+  editError.value = false;
+}
+
+async function submitEdit() {
+  editLoading.value = true;
+  editMessage.value = '';
+  editError.value = false;
+  try {
+    const res = await fetch(`${apiBase}/api/listings/${editTarget.value.id}`, {
+      method: 'PUT',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify(editForm)
+    });
+    const data = await res.json();
+    if (!res.ok) throw new Error(data.error || 'ไม่สามารถแก้ไขสินค้าได้');
+    editMessage.value = 'อัปเดตข้อมูลสินค้าเรียบร้อย!';
+    setTimeout(() => {
+      editTarget.value = null;
+      fetchListings();
+    }, 1200);
+  } catch (err) {
+    editError.value = true;
+    editMessage.value = err.message;
+  } finally {
+    editLoading.value = false;
+  }
+}
+
+// === Logic: ปุ่มลบ ===
+function openDelete(item) {
+  deleteTarget.value = item;
+  deleteMessage.value = '';
+  deleteError.value = false;
+}
+
+async function submitDelete() {
+  deleteLoading.value = true;
+  deleteMessage.value = '';
+  deleteError.value = false;
+  try {
+    const res = await fetch(`${apiBase}/api/listings/${deleteTarget.value.id}`, {
+      method: 'DELETE'
+    });
+    if (!res.ok) {
+      const data = await res.json().catch(() => ({}));
+      throw new Error(data.error || 'ไม่สามารถลบสินค้าได้');
+    }
+    deleteMessage.value = 'ลบรายการสินค้าสำเร็จ!';
+    setTimeout(() => {
+      deleteTarget.value = null;
+      fetchListings();
+    }, 1200);
+  } catch (err) {
+    deleteError.value = true;
+    deleteMessage.value = err.message;
+  } finally {
+    deleteLoading.value = false;
+  }
+}
+
 onMounted(() => {
   checkHealth();
   fetchListings();
@@ -522,6 +798,12 @@ body { margin: 0; }
 .btn--ghost { background: transparent; border-color: var(--border); color: var(--text); }
 .btn--sm { padding: 6px 12px; font-size: 12px; }
 
+/* Dynamic state buttons */
+.btn--success { background: var(--good); color: #0A1512; }
+.btn--warning { background: var(--warn); color: #0A1512; }
+.btn--danger { background: var(--danger); color: #FFF; }
+.btn--success:disabled, .btn--warning:disabled, .btn--danger:disabled { opacity: 0.5; cursor: not-allowed; }
+
 .formmsg { font-size: 13px; padding: 8px 12px; border-radius: 6px; }
 .formmsg--ok { background: rgba(94,234,212,0.12); color: var(--accent); }
 .formmsg--error { background: rgba(242,84,91,0.12); color: var(--danger); }
@@ -540,7 +822,12 @@ body { margin: 0; }
 .spectable dt { color: var(--muted); font-family: 'JetBrains Mono', monospace; }
 .spectable dd { margin: 0; text-align: right; }
 .card__defects { font-size: 12px; color: var(--warn); margin: 0; }
-.card__footer { display: flex; justify-content: space-between; align-items: center; margin-top: auto; padding-top: 8px; border-top: 1px solid var(--border); }
+
+/* Container for 3 main buttons inside a card */
+.card__actions { display: flex; gap: 6px; margin-top: 8px; border-top: 1px solid var(--border); padding-top: 12px; }
+.flex-1 { flex: 1; }
+
+.card__footer { display: flex; justify-content: space-between; align-items: center; margin-top: auto; padding-top: 8px; }
 .card__seller { font-size: 12px; color: var(--muted); }
 
 .battery { display: flex; align-items: center; gap: 8px; }
@@ -554,9 +841,12 @@ body { margin: 0; }
 .empty { color: var(--muted); padding: 40px 0; text-align: center; font-family: 'JetBrains Mono', monospace; }
 
 /* ---------- Modal ---------- */
-.modal-backdrop { position: fixed; inset: 0; background: rgba(0,0,0,0.6); display: flex; align-items: center; justify-content: center; padding: 20px; }
+.modal-backdrop { position: fixed; inset: 0; background: rgba(0,0,0,0.6); display: flex; align-items: center; justify-content: center; padding: 20px; z-index: 1000; }
 .modal { background: var(--panel); border: 1px solid var(--border); border-radius: var(--radius); padding: 24px; width: 100%; max-width: 420px; }
-.modal__actions { display: flex; gap: 10px; justify-content: flex-end; }
+.modal--large { max-width: 680px; max-height: 85vh; overflow-y: auto; }
+.modal__desc { font-size: 13px; color: var(--muted); margin: 8px 0 16px 0; }
+.text-accent { color: var(--accent); }
+.modal__actions { display: flex; gap: 10px; justify-content: flex-end; margin-top: 16px; }
 .stars { display: flex; gap: 4px; font-size: 24px; cursor: pointer; }
 .star { color: var(--border); }
 .star--on { color: var(--warn); }
