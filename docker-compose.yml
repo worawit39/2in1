@@ -12,8 +12,11 @@ services:
       POSTGRES_USER: ${DB_USER:-postgres}
       POSTGRES_PASSWORD: ${DB_PASSWORD:-change_this_password}
       POSTGRES_DB: ${DB_NAME:-laptop_market}
-    ports:
-      - "5432:5432"
+    # หมายเหตุความปลอดภัย: ไม่ expose port 5432 ออกสู่ host โดย default
+    # backend เข้าถึง db ผ่าน docker network ภายใน (hostname "db") อยู่แล้ว ไม่จำเป็นต้องเปิดพอร์ตออกนอกเครื่อง
+    # ถ้าต้องการต่อด้วย psql/DBeaver จากเครื่อง host เพื่อ debug ให้ uncomment บรรทัดด้านล่าง
+    # ports:
+    #   - "5432:5432"
     volumes:
       - pgdata:/var/lib/postgresql/data
     healthcheck:
@@ -21,6 +24,7 @@ services:
       interval: 5s
       timeout: 5s
       retries: 10
+      start_period: 10s
 
   backend:
     build:
@@ -29,6 +33,7 @@ services:
     container_name: notebook-shop-backend
     restart: unless-stopped
     environment:
+      NODE_ENV: development
       DB_HOST: db
       DB_PORT: 5432
       DB_USER: ${DB_USER:-postgres}

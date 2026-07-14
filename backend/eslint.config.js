@@ -1,25 +1,25 @@
-// eslint.config.js - ESLint v9 flat config (ตามที่ใช้ใน Week 5)
-const globals = require('globals');
+const globals = require("globals");
 
 module.exports = [
   {
-    files: ['**/*.js'],
+    files: ["**/*.js"],
     languageOptions: {
-      ecmaVersion: 2022,
-      sourceType: 'commonjs',
+      ecmaVersion: "latest",
+      sourceType: "commonjs",
       globals: {
         ...globals.node,
-      },
+        ...globals.jest
+      }
     },
     rules: {
-      'no-unused-vars': 'warn',
-      'no-console': 'off',
-      semi: ['error', 'always'],
-      quotes: ['warn', 'single', { avoidEscape: true }],
-      eqeqeq: 'warn',
-    },
+      "no-unused-vars": "warn",
+      "no-undef": "error",
+      "no-console": "off",
+      semi: ["warn", "always"],
+      quotes: ["warn", "single", { avoidEscape: true }]
+    }
   },
   {
-    ignores: ['node_modules/', 'coverage/'],
-  },
+    ignores: ["node_modules/**", "coverage/**"]
+  }
 ];
