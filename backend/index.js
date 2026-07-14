@@ -7,11 +7,46 @@ const app = express();
 const PORT = process.env.PORT || 3000;
 
 app.use(cors());
+app.use(express.json({ limit: '10mb' }));
+app.use(express.urlencoded({ limit: '10mb', extended: true }));
 
-// แก้ไข 2 บรรทัดนี้เพื่อขยายให้รองรับไฟล์รูปภาพขนาดใหญ่ (50MB)
-app.use(express.json({ limit: '1000mb' }));
-app.use(express.urlencoded({ limit: '1000mb', extended: true }));
+// รายการประเภทโน้ตบุ๊กที่ระบบรองรับ (ใช้ตรวจสอบฝั่ง backend ให้ตรงกับตัวกรองฝั่ง frontend)
+const CATEGORIES = ['Gaming', 'Office', 'Thin & Light'];
 
+// ---------------------------------------------------------------------------
+// Validation helper (export ไว้เพื่อให้ unit test เรียกใช้ได้โดยตรง โดยไม่ต้องพึ่ง DB)
+// ---------------------------------------------------------------------------
+function validateLaptopPayload(payload, { partial = false } = {}) {
+  const errors = [];
+  const { seller_name, category, brand, model, price } = payload;
+
+  if (!partial || seller_name !== undefined) {
+    if (!seller_name || !String(seller_name).trim()) errors.push('seller_name is required');
+  }
+  if (!partial || category !== undefined) {
+    if (!category || !String(category).trim()) {
+      errors.push('category is required');
+    } else if (!CATEGORIES.includes(category)) {
+      errors.push(`category must be one of: ${CATEGORIES.join(', ')}`);
+    }
+  }
+  if (!partial || brand !== undefined) {
+    if (!brand || !String(brand).trim()) errors.push('brand is required');
+  }
+  if (!partial || model !== undefined) {
+    if (!model || !String(model).trim()) errors.push('model is required');
+  }
+  if (!partial || price !== undefined) {
+    if (price === undefined || price === null || price === '') {
+      errors.push('price is required');
+    } else {
+      const numPrice = Number(price);
+      if (Number.isNaN(numPrice) || numPrice < 0) errors.push('price must be a non-negative number');
+    }
+  }
+
+  return errors;
+}
 
 // ---------------------------------------------------------------------------
 // Health check
@@ -19,247 +54,212 @@ app.use(express.urlencoded({ limit: '1000mb', extended: true }));
 app.get('/health', async (req, res) => {
   try {
     await pool.query('SELECT 1');
-    res.status(200).json({ status: 'ok', database: 'connected', timestamp: new Date().toISOString() });
+    res.status(200).json({
+      status: 'ok',
+      service: 'backend',
+      database: 'connected',
+      timestamp: new Date().toISOString(),
+    });
   } catch (err) {
-    res.status(503).json({ status: 'error', database: 'disconnected', message: err.message });
+    res.status(503).json({
+      status: 'error',
+      service: 'backend',
+      database: 'disconnected',
+      message: err.message,
+    });
   }
 });
 
-// ---------------------------------------------------------------------------
-// KYC (simulated identity verification for sellers)
-// ---------------------------------------------------------------------------
-app.post('/api/kyc', async (req, res) => {
-  try {
-    const { fullName, idCardNumber, facePhotoUrl } = req.body;
-
-    if (!fullName || !idCardNumber) {
-      return res.status(400).json({ error: 'fullName and idCardNumber are required' });
-    }
-    if (!/^\d{13}$/.test(String(idCardNumber))) {
-      return res.status(400).json({ error: 'idCardNumber must be exactly 13 digits (Thai national ID format)' });
-    }
-    if (!facePhotoUrl) {
-      return res.status(400).json({ error: 'facePhotoUrl is required to complete KYC simulation' });
-    }
-
-    const result = await pool.query(
-      `INSERT INTO sellers (full_name, id_card_number, face_photo_url, kyc_verified)
-       VALUES ($1, $2, $3, TRUE)
-       ON CONFLICT (id_card_number)
-       DO UPDATE SET full_name = EXCLUDED.full_name, face_photo_url = EXCLUDED.face_photo_url
-       RETURNING id, full_name, kyc_verified, created_at`,
-      [fullName, String(idCardNumber), facePhotoUrl]
-    );
-
-    res.status(201).json({ message: 'KYC simulation completed successfully', seller: result.rows[0] });
-  } catch (err) {
-    console.error(err);
-    res.status(500).json({ error: 'Failed to process KYC', detail: err.message });
-  }
-});
-
-app.get('/api/sellers/:id', async (req, res) => {
-  try {
-    const sellerResult = await pool.query(
-      `SELECT s.id, s.full_name, s.kyc_verified, s.created_at,
-              COALESCE(AVG(r.rating), 0)::NUMERIC(3,2) AS rating_avg,
-              COUNT(r.id) AS rating_count
-       FROM sellers s
-       LEFT JOIN reviews r ON r.seller_id = s.id
-       WHERE s.id = $1
-       GROUP BY s.id`,
-      [req.params.id]
-    );
-
-    if (sellerResult.rows.length === 0) {
-      return res.status(404).json({ error: 'Seller not found' });
-    }
-    res.json(sellerResult.rows[0]);
-  } catch (err) {
-    console.error(err);
-    res.status(500).json({ error: 'Failed to fetch seller', detail: err.message });
-  }
+app.get('/api/categories', (req, res) => {
+  res.json(CATEGORIES);
 });
 
 // ---------------------------------------------------------------------------
-// Listings CRUD + Advanced Filter/Search
+// Laptops CRUD + Category Filter / Search
 // ---------------------------------------------------------------------------
-app.post('/api/listings', async (req, res) => {
+
+// GET /api/laptops?category=&brand=&q=&minPrice=&maxPrice=&status=
+app.get('/api/laptops', async (req, res) => {
   try {
-    const {
-      sellerId, brand, cpu, ram, gpu,
-      batteryHealth, defects, price,
-      usageType, province, bootScreenPhotoUrl
-    } = req.body;
-
-    const required = { sellerId, brand, cpu, ram, gpu, batteryHealth, price, usageType, province, bootScreenPhotoUrl };
-    const missing = Object.entries(required).filter(([, v]) => v === undefined || v === null || v === '').map(([k]) => k);
-    if (missing.length > 0) {
-      return res.status(400).json({ error: `Missing required fields: ${missing.join(', ')}` });
-    }
-
-    const sellerCheck = await pool.query('SELECT kyc_verified FROM sellers WHERE id = $1', [sellerId]);
-    if (sellerCheck.rows.length === 0) {
-      return res.status(404).json({ error: 'Seller not found. Please complete KYC before listing an item.' });
-    }
-    if (!sellerCheck.rows[0].kyc_verified) {
-      return res.status(403).json({ error: 'Seller has not completed KYC verification' });
-    }
-
-    const result = await pool.query(
-      `INSERT INTO listings
-        (seller_id, brand, cpu, ram, gpu, battery_health, defects, price, usage_type, province, boot_screen_photo_url)
-       VALUES ($1,$2,$3,$4,$5,$6,$7,$8,$9,$10,$11)
-       RETURNING *`,
-      [sellerId, brand, cpu, ram, gpu, batteryHealth, defects || '', price, usageType, province, bootScreenPhotoUrl]
-    );
-
-    res.status(201).json(result.rows[0]);
-  } catch (err) {
-    console.error(err);
-    res.status(500).json({ error: 'Failed to create listing', detail: err.message });
-  }
-});
-
-app.get('/api/listings', async (req, res) => {
-  try {
-    const { minPrice, maxPrice, brand, usageType, province } = req.query;
+    const { category, brand, q, minPrice, maxPrice, status } = req.query;
 
     const conditions = [];
     const values = [];
     let idx = 1;
 
-    if (minPrice) { conditions.push(`price >= $${idx++}`); values.push(minPrice); }
-    if (maxPrice) { conditions.push(`price <= $${idx++}`); values.push(maxPrice); }
-    if (brand) { conditions.push(`brand ILIKE $${idx++}`); values.push(`%${brand}%`); }
-    if (usageType) { conditions.push(`usage_type = $${idx++}`); values.push(usageType); }
-    if (province) { conditions.push(`province ILIKE $${idx++}`); values.push(`%${province}%`); }
+    // ใช้ "=" แบบ exact match เท่านั้น (ห้ามใช้ ILIKE %category%) เพื่อไม่ให้ประเภทอื่น
+    // หลุดเข้ามาปนกัน เช่น กรอง "Office" ต้องไม่ดึง "Office Pro" หรือประเภทอื่นติดมาด้วย
+    if (category) {
+      conditions.push(`category = $${idx++}`);
+      values.push(category);
+    }
+    if (brand) {
+      conditions.push(`brand ILIKE $${idx++}`);
+      values.push(`%${brand}%`);
+    }
+    if (status) {
+      conditions.push(`status = $${idx++}`);
+      values.push(status);
+    }
+    if (q) {
+      conditions.push(`(brand ILIKE $${idx} OR model ILIKE $${idx} OR seller_name ILIKE $${idx})`);
+      values.push(`%${q}%`);
+      idx++;
+    }
+    if (minPrice) {
+      conditions.push(`price >= $${idx++}`);
+      values.push(minPrice);
+    }
+    if (maxPrice) {
+      conditions.push(`price <= $${idx++}`);
+      values.push(maxPrice);
+    }
 
     const whereClause = conditions.length ? `WHERE ${conditions.join(' AND ')}` : '';
     const result = await pool.query(
-      `SELECT l.*, s.full_name AS seller_name
-       FROM listings l
-       JOIN sellers s ON s.id = l.seller_id
-       ${whereClause}
-       ORDER BY l.created_at DESC`,
+      `SELECT * FROM laptops ${whereClause} ORDER BY created_at DESC`,
       values
     );
 
     res.json(result.rows);
   } catch (err) {
     console.error(err);
-    res.status(500).json({ error: 'Failed to fetch listings', detail: err.message });
+    res.status(500).json({ error: 'Failed to fetch laptops', detail: err.message });
   }
 });
 
-app.get('/api/listings/:id', async (req, res) => {
+app.get('/api/laptops/:id', async (req, res) => {
   try {
-    const result = await pool.query(
-      `SELECT l.*, s.full_name AS seller_name
-       FROM listings l JOIN sellers s ON s.id = l.seller_id
-       WHERE l.id = $1`,
-      [req.params.id]
-    );
+    const result = await pool.query('SELECT * FROM laptops WHERE id = $1', [req.params.id]);
     if (result.rows.length === 0) {
-      return res.status(404).json({ error: 'Listing not found' });
+      return res.status(404).json({ error: 'Laptop not found' });
     }
     res.json(result.rows[0]);
   } catch (err) {
     console.error(err);
-    res.status(500).json({ error: 'Failed to fetch listing', detail: err.message });
+    res.status(500).json({ error: 'Failed to fetch laptop', detail: err.message });
   }
 });
 
-app.put('/api/listings/:id', async (req, res) => {
+app.post('/api/laptops', async (req, res) => {
   try {
+    const errors = validateLaptopPayload(req.body);
+    if (errors.length > 0) {
+      return res.status(400).json({ error: errors.join(', '), errors });
+    }
+
     const {
-      brand, cpu, ram, gpu, batteryHealth,
-      defects, price, usageType, province, bootScreenPhotoUrl
+      seller_name, category, brand, model, cpu, ram, storage, gpu,
+      screen_size, condition_note, price, description, image_url,
     } = req.body;
 
     const result = await pool.query(
-      `UPDATE listings SET
-        brand = COALESCE($1, brand),
-        cpu = COALESCE($2, cpu),
-        ram = COALESCE($3, ram),
-        gpu = COALESCE($4, gpu),
-        battery_health = COALESCE($5, battery_health),
-        defects = COALESCE($6, defects),
-        price = COALESCE($7, price),
-        usage_type = COALESCE($8, usage_type),
-        province = COALESCE($9, province),
-        boot_screen_photo_url = COALESCE($10, boot_screen_photo_url)
-       WHERE id = $11
+      `INSERT INTO laptops
+        (seller_name, category, brand, model, cpu, ram, storage, gpu,
+         screen_size, condition_note, price, description, image_url)
+       VALUES ($1,$2,$3,$4,$5,$6,$7,$8,$9,$10,$11,$12,$13)
        RETURNING *`,
-      [brand, cpu, ram, gpu, batteryHealth, defects, price, usageType, province, bootScreenPhotoUrl, req.params.id]
-    );
-
-    if (result.rows.length === 0) {
-      return res.status(404).json({ error: 'Listing not found' });
-    }
-    res.json(result.rows[0]);
-  } catch (err) {
-    console.error(err);
-    res.status(500).json({ error: 'Failed to update listing', detail: err.message });
-  }
-});
-
-app.delete('/api/listings/:id', async (req, res) => {
-  try {
-    const result = await pool.query('DELETE FROM listings WHERE id = $1 RETURNING id', [req.params.id]);
-    if (result.rows.length === 0) {
-      return res.status(404).json({ error: 'Listing not found' });
-    }
-    res.json({ message: 'Listing deleted successfully', id: result.rows[0].id });
-  } catch (err) {
-    console.error(err);
-    res.status(500).json({ error: 'Failed to delete listing', detail: err.message });
-  }
-});
-
-// ---------------------------------------------------------------------------
-// Reviews & Ratings
-// ---------------------------------------------------------------------------
-app.post('/api/reviews', async (req, res) => {
-  try {
-    const { sellerId, buyerName, rating, comment } = req.body;
-
-    if (!sellerId || !buyerName || rating === undefined) {
-      return res.status(400).json({ error: 'sellerId, buyerName and rating are required' });
-    }
-    const numericRating = Number(rating);
-    if (!Number.isInteger(numericRating) || numericRating < 1 || numericRating > 5) {
-      return res.status(400).json({ error: 'rating must be an integer between 1 and 5' });
-    }
-
-    const sellerCheck = await pool.query('SELECT id FROM sellers WHERE id = $1', [sellerId]);
-    if (sellerCheck.rows.length === 0) {
-      return res.status(404).json({ error: 'Seller not found' });
-    }
-
-    const result = await pool.query(
-      `INSERT INTO reviews (seller_id, buyer_name, rating, comment)
-       VALUES ($1, $2, $3, $4) RETURNING *`,
-      [sellerId, buyerName, numericRating, comment || '']
+      [
+        seller_name, category, brand, model, cpu || '', ram || '', storage || '', gpu || '',
+        screen_size || '', condition_note || '', price, description || '', image_url || '',
+      ]
     );
 
     res.status(201).json(result.rows[0]);
   } catch (err) {
     console.error(err);
-    res.status(500).json({ error: 'Failed to create review', detail: err.message });
+    res.status(500).json({ error: 'Failed to create laptop', detail: err.message });
   }
 });
 
-app.get('/api/sellers/:id/reviews', async (req, res) => {
+app.put('/api/laptops/:id', async (req, res) => {
   try {
+    const errors = validateLaptopPayload(req.body, { partial: true });
+    if (errors.length > 0) {
+      return res.status(400).json({ error: errors.join(', '), errors });
+    }
+
+    const {
+      seller_name, category, brand, model, cpu, ram, storage, gpu,
+      screen_size, condition_note, price, description, image_url,
+    } = req.body;
+
     const result = await pool.query(
-      'SELECT * FROM reviews WHERE seller_id = $1 ORDER BY created_at DESC',
-      [req.params.id]
+      `UPDATE laptops SET
+        seller_name = COALESCE($1, seller_name),
+        category = COALESCE($2, category),
+        brand = COALESCE($3, brand),
+        model = COALESCE($4, model),
+        cpu = COALESCE($5, cpu),
+        ram = COALESCE($6, ram),
+        storage = COALESCE($7, storage),
+        gpu = COALESCE($8, gpu),
+        screen_size = COALESCE($9, screen_size),
+        condition_note = COALESCE($10, condition_note),
+        price = COALESCE($11, price),
+        description = COALESCE($12, description),
+        image_url = COALESCE($13, image_url),
+        updated_at = NOW()
+       WHERE id = $14
+       RETURNING *`,
+      [
+        seller_name, category, brand, model, cpu, ram, storage, gpu,
+        screen_size, condition_note, price, description, image_url, req.params.id,
+      ]
     );
-    res.json(result.rows);
+
+    if (result.rows.length === 0) {
+      return res.status(404).json({ error: 'Laptop not found' });
+    }
+    res.json(result.rows[0]);
   } catch (err) {
     console.error(err);
-    res.status(500).json({ error: 'Failed to fetch reviews', detail: err.message });
+    res.status(500).json({ error: 'Failed to update laptop', detail: err.message });
+  }
+});
+
+app.delete('/api/laptops/:id', async (req, res) => {
+  try {
+    const result = await pool.query('DELETE FROM laptops WHERE id = $1 RETURNING id', [req.params.id]);
+    if (result.rows.length === 0) {
+      return res.status(404).json({ error: 'Laptop not found' });
+    }
+    res.json({ message: 'Laptop deleted successfully', id: result.rows[0].id });
+  } catch (err) {
+    console.error(err);
+    res.status(500).json({ error: 'Failed to delete laptop', detail: err.message });
+  }
+});
+
+// ---------------------------------------------------------------------------
+// Checkout: ยืนยันคำสั่งซื้อ -> เปลี่ยนสถานะสินค้าเป็น "sold" (ขายแล้ว)
+// ---------------------------------------------------------------------------
+app.post('/api/laptops/:id/order', async (req, res) => {
+  try {
+    const { buyerName } = req.body;
+    if (!buyerName || !String(buyerName).trim()) {
+      return res.status(400).json({ error: 'buyerName is required to confirm an order' });
+    }
+
+    const existing = await pool.query('SELECT * FROM laptops WHERE id = $1', [req.params.id]);
+    if (existing.rows.length === 0) {
+      return res.status(404).json({ error: 'Laptop not found' });
+    }
+    if (existing.rows[0].status === 'sold') {
+      return res.status(409).json({ error: 'This laptop has already been sold' });
+    }
+
+    const result = await pool.query(
+      `UPDATE laptops SET status = 'sold', buyer_name = $1, ordered_at = NOW(), updated_at = NOW()
+       WHERE id = $2
+       RETURNING *`,
+      [buyerName, req.params.id]
+    );
+
+    res.status(200).json({ message: 'Order confirmed successfully', laptop: result.rows[0] });
+  } catch (err) {
+    console.error(err);
+    res.status(500).json({ error: 'Failed to confirm order', detail: err.message });
   }
 });
 
@@ -268,39 +268,20 @@ app.use((req, res) => {
   res.status(404).json({ error: 'Route not found' });
 });
 
-// Only start listening (and connect to DB) when this file is run directly,
-// so it can be safely `require()`-d from tests without opening a real port.
-// 1. เพิ่มฟังก์ชันตรวจสอบข้อมูลแล็ปท็อปตามที่ไฟล์เทสคาดหวังไว้
-function validateLaptopPayload(payload, partial = false) {
-  // หากเป็นการอัปเดตแบบบางส่วน (PUT) และไม่มีข้อมูลส่งมาเลย ให้ผ่าน
-  if (partial && Object.keys(payload).length === 0) return true;
-
-  const { seller_name, brand, model, price } = payload;
-
-  // หากไม่ใช่การอัปเดตบางส่วน (เช่น POST) ต้องเช็กว่ามีฟิลด์บังคับครบไหม
-  if (!partial) {
-    if (!seller_name || !brand || !model || price === undefined) {
-      return false;
-    }
-  }
-
-  // เช็กเงื่อนไขราคา: ต้องเป็นตัวเลข และห้ามติดลบ
-  if (price !== undefined) {
-    const numPrice = Number(price);
-    if (isNaN(numPrice) || numPrice < 0) {
-      return false;
-    }
-  }
-
-  return true;
-}
-
+// เริ่ม listen (และเชื่อมต่อ DB) เฉพาะตอนรันไฟล์นี้โดยตรงเท่านั้น
+// เพื่อให้ require() จาก test ได้โดยไม่เปิดพอร์ตจริง
 if (process.env.NODE_ENV !== 'test') {
-  const PORT = process.env.PORT || 3000;
+  initDb()
+    .then(() => {
+      console.log('Database initialized successfully');
+    })
+    .catch((err) => {
+      console.error('Failed to initialize database:', err.message);
+    });
+
   app.listen(PORT, () => {
     console.log(`Server is running on port ${PORT}`);
   });
 }
 
-// 2. ปรับการ Export ด้านล่างสุดให้ส่งออกทั้ง app และฟังก์ชันทดสอบ
-module.exports = { app, validateLaptopPayload };
+module.exports = { app, validateLaptopPayload, CATEGORIES };

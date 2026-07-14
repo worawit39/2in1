@@ -1,0 +1,248 @@
+:root {
+  --primary: #2563eb;
+  --primary-dark: #1d4ed8;
+  --danger: #dc2626;
+  --bg: #f4f6fb;
+  --card-bg: #ffffff;
+  --border: #e2e8f0;
+  --text: #1e293b;
+  --muted: #64748b;
+}
+
+* { box-sizing: border-box; }
+
+body {
+  margin: 0;
+  font-family: 'Segoe UI', 'Sarabun', system-ui, sans-serif;
+  background: var(--bg);
+  color: var(--text);
+}
+
+.hidden { display: none !important; }
+
+#student-tag {
+  position: fixed;
+  top: 10px;
+  right: 14px;
+  z-index: 999;
+  background: rgba(15, 23, 42, 0.85);
+  color: #fff;
+  padding: 6px 12px;
+  border-radius: 999px;
+  font-size: 12px;
+  display: flex;
+  align-items: center;
+  gap: 8px;
+}
+
+.badge {
+  padding: 2px 8px;
+  border-radius: 999px;
+  background: #475569;
+  font-size: 11px;
+}
+.badge.ok { background: #16a34a; }
+.badge.error { background: var(--danger); }
+
+.topbar {
+  background: linear-gradient(135deg, var(--primary), var(--primary-dark));
+  color: #fff;
+  padding: 24px 20px 16px;
+  text-align: center;
+}
+.topbar h1 { margin: 0 0 12px; font-size: 24px; }
+
+.tabs { display: flex; justify-content: center; gap: 8px; }
+.tab-btn {
+  padding: 8px 20px;
+  border: none;
+  border-radius: 999px;
+  cursor: pointer;
+  background: rgba(255,255,255,0.15);
+  color: #fff;
+  font-weight: 600;
+}
+.tab-btn.active { background: #fff; color: var(--primary-dark); }
+
+main { max-width: 1100px; margin: 0 auto; padding: 20px; }
+
+.filter-bar {
+  background: var(--card-bg);
+  border: 1px solid var(--border);
+  border-radius: 12px;
+  padding: 16px;
+  margin-bottom: 16px;
+}
+.filter-row {
+  display: flex;
+  flex-wrap: wrap;
+  align-items: center;
+  gap: 8px;
+  margin-bottom: 12px;
+}
+.filter-row label { font-size: 13px; color: var(--muted); }
+.filter-row input {
+  padding: 8px 10px;
+  border: 1px solid var(--border);
+  border-radius: 8px;
+  min-width: 120px;
+}
+
+.category-filter { display: flex; flex-wrap: wrap; gap: 8px; }
+.cat-btn {
+  padding: 6px 16px;
+  border-radius: 999px;
+  border: 1px solid var(--border);
+  background: #fff;
+  cursor: pointer;
+  font-weight: 500;
+}
+.cat-btn.active { background: var(--primary); color: #fff; border-color: var(--primary); }
+
+.btn {
+  padding: 8px 16px;
+  border-radius: 8px;
+  border: none;
+  cursor: pointer;
+  font-weight: 600;
+}
+.btn.primary { background: var(--primary); color: #fff; }
+.btn.primary:hover { background: var(--primary-dark); }
+.btn.ghost { background: #e2e8f0; color: var(--text); }
+.btn.danger { background: var(--danger); color: #fff; }
+
+#status-msg { color: var(--muted); min-height: 20px; }
+#status-msg.error { color: var(--danger); }
+
+.grid {
+  display: grid;
+  grid-template-columns: repeat(auto-fill, minmax(230px, 1fr));
+  gap: 16px;
+}
+
+.card {
+  background: var(--card-bg);
+  border: 1px solid var(--border);
+  border-radius: 12px;
+  padding: 14px;
+  cursor: pointer;
+  transition: transform 0.15s, box-shadow 0.15s;
+  position: relative;
+}
+.card:hover { transform: translateY(-3px); box-shadow: 0 8px 20px rgba(0,0,0,0.08); }
+
+.thumb {
+  width: 100%;
+  height: 140px;
+  object-fit: cover;
+  border-radius: 8px;
+  margin-bottom: 10px;
+  background: #f1f5f9;
+}
+.thumb.placeholder {
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  color: var(--muted);
+  font-size: 13px;
+}
+
+.card h3 { margin: 0 0 4px; font-size: 16px; }
+.card .cat-chip {
+  display: inline-block;
+  font-size: 11px;
+  background: #eef2ff;
+  color: var(--primary-dark);
+  padding: 2px 8px;
+  border-radius: 999px;
+  margin-bottom: 6px;
+}
+.card .price { font-weight: 700; color: var(--primary-dark); margin: 4px 0; }
+.card .meta { font-size: 12px; color: var(--muted); margin: 2px 0; }
+.card .seller { font-size: 12px; color: var(--muted); margin: 2px 0; }
+
+.sold-badge {
+  position: absolute;
+  top: 10px;
+  right: 10px;
+  background: var(--danger);
+  color: #fff;
+  font-size: 11px;
+  padding: 3px 10px;
+  border-radius: 999px;
+  font-weight: 700;
+}
+.card.sold { opacity: 0.6; }
+
+#tab-sell { background: var(--card-bg); border: 1px solid var(--border); border-radius: 12px; padding: 20px; }
+#tab-sell h2 { margin-top: 0; }
+
+.form-grid {
+  display: grid;
+  grid-template-columns: repeat(auto-fill, minmax(220px, 1fr));
+  gap: 12px;
+}
+label { display: flex; flex-direction: column; gap: 4px; font-size: 13px; color: var(--muted); }
+label.full { margin-top: 12px; }
+input, select, textarea {
+  padding: 8px 10px;
+  border: 1px solid var(--border);
+  border-radius: 8px;
+  font-size: 14px;
+  font-family: inherit;
+}
+.form-actions { margin-top: 16px; display: flex; gap: 10px; }
+#form-msg, #order-form-msg { min-height: 20px; }
+#form-msg.success { color: #16a34a; }
+#form-msg.error, #order-form-msg.error { color: var(--danger); }
+
+.modal-backdrop {
+  position: fixed;
+  inset: 0;
+  background: rgba(15, 23, 42, 0.5);
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  z-index: 1000;
+  padding: 16px;
+}
+.modal {
+  background: #fff;
+  border-radius: 14px;
+  padding: 24px;
+  max-width: 480px;
+  width: 100%;
+  max-height: 90vh;
+  overflow-y: auto;
+  position: relative;
+}
+.modal.small { max-width: 380px; }
+.modal-close {
+  position: absolute;
+  top: 10px;
+  right: 14px;
+  border: none;
+  background: none;
+  font-size: 22px;
+  cursor: pointer;
+  color: var(--muted);
+}
+.modal-img { width: 100%; border-radius: 10px; margin-bottom: 12px; max-height: 220px; object-fit: cover; }
+.modal .tag {
+  display: inline-block;
+  background: #eef2ff;
+  color: var(--primary-dark);
+  padding: 2px 10px;
+  border-radius: 999px;
+  font-size: 12px;
+}
+.modal .price { font-size: 20px; font-weight: 700; color: var(--primary-dark); }
+.status-tag { font-weight: 700; }
+.status-tag.available { color: #16a34a; }
+.status-tag.sold { color: var(--danger); }
+
+.spec-table { width: 100%; border-collapse: collapse; margin: 10px 0; }
+.spec-table td { padding: 4px 0; border-bottom: 1px dashed var(--border); font-size: 13px; }
+.spec-table td:first-child { color: var(--muted); width: 40%; }
+
+.modal-actions { display: flex; gap: 8px; margin-top: 16px; flex-wrap: wrap; }

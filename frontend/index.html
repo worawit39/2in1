@@ -1,15 +1,167 @@
 <!DOCTYPE html>
 <html lang="th">
-  <head>
-    <meta charset="UTF-8" />
-    <meta name="viewport" content="width=device-width, initial-scale=1.0" />
-    <title>SecondHand Laptop Marketplace</title>
-    <link rel="preconnect" href="https://fonts.googleapis.com">
-    <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
-    <link href="https://fonts.googleapis.com/css2?family=JetBrains+Mono:wght@400;500;700&family=Inter:wght@400;500;600;700&display=swap" rel="stylesheet">
-  </head>
-  <body>
-    <div id="app"></div>
-    <script type="module" src="/src/main.js"></script>
-  </body>
+<head>
+  <meta charset="UTF-8" />
+  <meta name="viewport" content="width=device-width, initial-scale=1.0" />
+  <title>ตลาดโน้ตบุ๊กมือสอง</title>
+  <link rel="stylesheet" href="/style.css" />
+</head>
+<body>
+  <!-- มุมจอ: ชื่อ-นามสกุล / รหัสนักศึกษา -->
+  <div id="student-tag">
+    <span id="student-tag-text">กำลังโหลด...</span>
+    <span id="health-status" class="badge">checking...</span>
+  </div>
+
+  <header class="topbar">
+    <h1>💻 ตลาดซื้อขายโน้ตบุ๊กมือสอง</h1>
+    <nav class="tabs">
+      <button id="tab-browse-btn" class="tab-btn active" type="button">เลือกซื้อสินค้า</button>
+      <button id="tab-sell-btn" class="tab-btn" type="button">ลงขายสินค้า</button>
+    </nav>
+  </header>
+
+  <main>
+    <!-- ============ TAB: BROWSE ============ -->
+    <section id="tab-browse">
+      <div class="filter-bar">
+        <div class="filter-row">
+          <label for="f-search">ค้นหา</label>
+          <input id="f-search" type="text" placeholder="ยี่ห้อ / รุ่น / ผู้ขาย" />
+
+          <label for="f-min-price">ราคาต่ำสุด</label>
+          <input id="f-min-price" type="number" min="0" placeholder="0" />
+
+          <label for="f-max-price">ราคาสูงสุด</label>
+          <input id="f-max-price" type="number" min="0" placeholder="ไม่จำกัด" />
+
+          <button id="search-btn" type="button" class="btn primary">ค้นหา</button>
+          <button id="reset-btn" type="button" class="btn ghost">ล้างค่า</button>
+        </div>
+
+        <!-- Category Filter: กดเลือกประเภทใดประเภทหนึ่งเพื่อกรองเฉพาะประเภทนั้น -->
+        <div class="category-filter" id="category-filter">
+          <button class="cat-btn active" data-category="">ทั้งหมด</button>
+          <!-- ปุ่มประเภทจะถูกสร้างจาก JS ตามรายการที่ backend รองรับ -->
+        </div>
+      </div>
+
+      <p id="status-msg"></p>
+      <div id="grid" class="grid"></div>
+    </section>
+
+    <!-- ============ TAB: SELL / EDIT FORM ============ -->
+    <section id="tab-sell" class="hidden">
+      <h2 id="form-title">ลงขายโน้ตบุ๊กใหม่</h2>
+      <form id="laptop-form">
+        <div class="form-grid">
+          <label>
+            ชื่อผู้ขาย *
+            <input id="f-seller-name" type="text" required />
+          </label>
+          <label>
+            ประเภทโน้ตบุ๊ก *
+            <select id="f-category" required>
+              <option value="">-- เลือกประเภท --</option>
+            </select>
+          </label>
+          <label>
+            ยี่ห้อ *
+            <input id="f-brand" type="text" required />
+          </label>
+          <label>
+            รุ่น *
+            <input id="f-model" type="text" required />
+          </label>
+          <label>
+            CPU
+            <input id="f-cpu" type="text" />
+          </label>
+          <label>
+            RAM
+            <input id="f-ram" type="text" />
+          </label>
+          <label>
+            พื้นที่จัดเก็บ
+            <input id="f-storage" type="text" />
+          </label>
+          <label>
+            การ์ดจอ
+            <input id="f-gpu" type="text" />
+          </label>
+          <label>
+            ขนาดหน้าจอ
+            <input id="f-screen" type="text" />
+          </label>
+          <label>
+            สภาพเครื่อง / ตำหนิ
+            <input id="f-condition" type="text" placeholder="เช่น สภาพดี ไม่มีตำหนิ" />
+          </label>
+          <label>
+            ราคา (บาท) *
+            <input id="f-price" type="number" min="0" step="1" required />
+          </label>
+          <label>
+            ลิงก์รูปภาพ
+            <input id="f-image" type="url" placeholder="https://..." />
+          </label>
+        </div>
+        <label class="full">
+          รายละเอียดเพิ่มเติม
+          <textarea id="f-desc" rows="3"></textarea>
+        </label>
+
+        <div class="form-actions">
+          <button type="submit" id="submit-btn" class="btn primary">ลงประกาศ</button>
+          <button type="button" id="cancel-edit-btn" class="btn ghost hidden">ยกเลิกการแก้ไข</button>
+        </div>
+        <p id="form-msg"></p>
+      </form>
+    </section>
+  </main>
+
+  <!-- ============ MODAL: รายละเอียดสินค้า ============ -->
+  <div id="modal-backdrop" class="modal-backdrop hidden">
+    <div class="modal">
+      <button class="modal-close" id="modal-close-btn" type="button">&times;</button>
+      <img id="modal-img" class="modal-img hidden" alt="" />
+      <h2 id="modal-title"></h2>
+      <p id="modal-category" class="tag"></p>
+      <p class="price" id="modal-price"></p>
+      <p id="modal-status" class="status-tag"></p>
+      <table class="spec-table">
+        <tbody id="modal-spec-body"></tbody>
+      </table>
+      <p id="modal-desc"></p>
+      <div class="modal-actions">
+        <button id="modal-buy-btn" class="btn primary" type="button">ซื้อสินค้า</button>
+        <button id="modal-edit-btn" class="btn ghost" type="button">แก้ไข</button>
+        <button id="modal-delete-btn" class="btn danger" type="button">ลบ</button>
+      </div>
+    </div>
+  </div>
+
+  <!-- ============ MODAL: ยืนยันคำสั่งซื้อ (Checkout) ============ -->
+  <div id="order-modal-backdrop" class="modal-backdrop hidden">
+    <div class="modal small">
+      <button class="modal-close" id="order-modal-close-btn" type="button">&times;</button>
+      <h2>ยืนยันคำสั่งซื้อ</h2>
+      <p>สินค้า: <strong id="order-modal-item-name"></strong></p>
+      <p>ราคา: <strong id="order-modal-item-price"></strong></p>
+      <form id="order-form">
+        <label>
+          ชื่อผู้ซื้อ *
+          <input id="order-buyer-name" type="text" required placeholder="กรอกชื่อ-นามสกุลผู้ซื้อ" />
+        </label>
+        <p id="order-form-msg"></p>
+        <div class="form-actions">
+          <button type="submit" class="btn primary">ยืนยันการซื้อ</button>
+          <button type="button" id="order-cancel-btn" class="btn ghost">ยกเลิก</button>
+        </div>
+      </form>
+    </div>
+  </div>
+
+  <script src="/app.js"></script>
+</body>
 </html>
