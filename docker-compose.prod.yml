@@ -57,3 +57,65 @@ services:
 
 volumes:
   pgdata:
+
+version: "3.9"
+
+# docker-compose.prod.yml — สำหรับ Production
+# ดึง image ที่ build และ push ขึ้น Docker Hub ไว้แล้วมารัน (ไม่ build จาก source ในเครื่อง)
+#
+# ก่อนใช้งาน:
+#   1. build และ push image ขึ้น Docker Hub ก่อน เช่น
+#        docker build -t <DOCKERHUB_USERNAME>/notebook-shop-backend:latest ./backend
+#        docker push <DOCKERHUB_USERNAME>/notebook-shop-backend:latest
+#        docker build -t <DOCKERHUB_USERNAME>/notebook-shop-frontend:latest ./frontend
+#        docker push <DOCKERHUB_USERNAME>/notebook-shop-frontend:latest
+#   2. ตั้งค่า DOCKERHUB_USERNAME ใน .env ให้ตรงกับบัญชีของตัวเอง
+#   3. รันด้วย: docker compose -f docker-compose.prod.yml up -d
+
+services:
+  db:
+    image: postgres:16-alpine
+    container_name: notebook-shop-db
+    restart: unless-stopped
+    environment:
+      POSTGRES_USER: ${DB_USER:-postgres}
+      POSTGRES_PASSWORD: ${DB_PASSWORD:-change_this_password}
+      POSTGRES_DB: ${DB_NAME:-laptop_market}
+    volumes:
+      - pgdata:/var/lib/postgresql/data
+    healthcheck:
+      test: ["CMD-SHELL", "pg_isready -U ${DB_USER:-postgres} -d ${DB_NAME:-laptop_market}"]
+      interval: 5s
+      timeout: 5s
+      retries: 10
+      start_period: 10s
+
+  backend:
+    image: ${DOCKERHUB_USERNAME}/notebook-shop-backend:${IMAGE_TAG:-latest}
+    container_name: notebook-shop-backend
+    restart: unless-stopped
+    environment:
+      NODE_ENV: production
+      DB_HOST: db
+      DB_PORT: 5432
+      DB_USER: ${DB_USER:-postgres}
+      DB_PASSWORD: ${DB_PASSWORD:-change_this_password}
+      DB_NAME: ${DB_NAME:-laptop_market}
+      PORT: ${PORT:-3000}
+    ports:
+      - "${BACKEND_PORT:-3000}:3000"
+    depends_on:
+      db:
+        condition: service_healthy
+
+  frontend:
+    image: ${DOCKERHUB_USERNAME}/notebook-shop-frontend:${IMAGE_TAG:-latest}
+    container_name: notebook-shop-frontend
+    restart: unless-stopped
+    ports:
+      - "${FRONTEND_PORT:-8080}:80"
+    depends_on:
+      - backend
+
+volumes:
+  pgdata:
