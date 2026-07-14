@@ -13,6 +13,7 @@
         <button :class="['navbtn', tab === 'browse' && 'navbtn--active']" @click="tab = 'browse'">ค้นหาสินค้า</button>
         <button :class="['navbtn', tab === 'sell' && 'navbtn--active']" @click="tab = 'sell'">ลงขาย</button>
         <button :class="['navbtn', tab === 'kyc' && 'navbtn--active']" @click="tab = 'kyc'">ยืนยันตัวตน</button>
+        <button :class="['navbtn', tab === 'orders' && 'navbtn--active']" @click="tab = 'orders'; fetchOrders()">รายการสั่งซื้อ</button>
       </nav>
     </header>
 
@@ -178,6 +179,11 @@
 
         <div v-else class="grid">
           <article v-for="item in listings" :key="item.id" class="card">
+            <!-- ============ ป้ายยืนยันการซื้อสำเร็จหน้าสินค้า ============ -->
+            <div v-if="item.status === 'sold' || item.is_sold || item.buyer_name" class="card__sold-badge">
+              <span class="card__sold-icon">✓</span> ซื้อแล้ว
+            </div>
+
             <div class="card__spechead">
               <span class="card__brand">{{ item.brand }}</span>
               <span class="card__price">฿{{ Number(item.price).toLocaleString() }}</span>
@@ -203,7 +209,9 @@
             
             <!-- ============ 3 ปุ่มหลักที่เพิ่มเข้ามา ============ -->
             <div class="card__actions">
-              <button class="btn btn--success btn--sm flex-1" @click="openBuy(item)">🛒 สั่งซื้อ</button>
+              <button v-if="!(item.status === 'sold' || item.is_sold || item.buyer_name)" class="btn btn--success btn--sm flex-1" @click="openBuy(item)">🛒 สั่งซื้อ</button>
+              <button v-else class="btn btn--secondary btn--sm flex-1" disabled style="opacity: 0.6; cursor: not-allowed; background: #2A3038; color: var(--muted); border-color: var(--border);">🔒 ขายแล้ว</button>
+              
               <button class="btn btn--warning btn--sm" @click="openEdit(item)">✏️ แก้ไข</button>
               <button class="btn btn--danger btn--sm" @click="openDelete(item)">🗑️ ลบ</button>
             </div>
@@ -213,6 +221,54 @@
               <button class="btn btn--ghost btn--sm" @click="openReview(item)">⭐ ให้คะแนนผู้ขาย</button>
             </div>
           </article>
+        </div>
+      </section>
+
+      <!-- ============ TAB: ORDERS (หน้า UI รายการยืนยันการสั่งซื้อ) ============ -->
+      <section v-if="tab === 'orders'" class="panel">
+        <h2 class="panel__title">04 / ใบสั่งซื้อสินค้าที่ยืนยันแล้ว (Order Confirmations)</h2>
+        <p class="panel__hint">
+          ประวัติคำสั่งซื้อทั้งหมดที่ทำรายการเสร็จสิ้นในระบบจำลองเพื่อตรวจสอบความถูกต้อง
+        </p>
+
+        <div v-if="ordersLoading" class="empty">กำลังโหลดข้อมูลการสั่งซื้อ...</div>
+        <div v-else-if="orders.length === 0" class="empty">ยังไม่มีการสั่งซื้อสินค้าเกิดขึ้นในระบบในขณะนี้</div>
+
+        <div v-else class="orders-grid">
+          <div v-for="order in orders" :key="order.id" class="order-card">
+            <div class="order-card__header">
+              <span class="order-card__badge">✓ ชำระเงินสำเร็จ</span>
+              <span class="order-card__id">Order #{{ order.id }}</span>
+            </div>
+            <div class="order-card__title">
+              {{ order.brand || order.listing_brand || 'Laptop Spec' }}
+            </div>
+            <div class="order-card__price">
+              ฿{{ Number(order.price || order.listing_price || 0).toLocaleString() }}
+            </div>
+            <div class="order-card__spec-box" v-if="order.cpu || order.ram">
+              <span>CPU: {{ order.cpu }}</span> | <span>RAM: {{ order.ram }}</span>
+            </div>
+            <hr class="order-card__divider">
+            <div class="order-card__info">
+              <div class="order-card__info-row">
+                <span class="order-card__label">👤 ชื่อผู้ซื้อ:</span>
+                <span class="order-card__value">{{ order.buyer_name || order.buyerName }}</span>
+              </div>
+              <div class="order-card__info-row">
+                <span class="order-card__label">📞 เบอร์โทรศัพท์:</span>
+                <span class="order-card__value">{{ order.phone || order.buyer_phone || '-' }}</span>
+              </div>
+              <div class="order-card__info-row">
+                <span class="order-card__label">📦 การจัดส่ง:</span>
+                <span class="order-card__value">{{ order.delivery_method === 'pickup' ? 'นัดรับสินค้า' : 'จัดส่งด่วน (EMS/Flash)' }}</span>
+              </div>
+              <div v-if="order.province" class="order-card__info-row">
+                <span class="order-card__label">📍 พื้นที่นัดรับ/จัดส่ง:</span>
+                <span class="order-card__value">{{ order.province }}</span>
+              </div>
+            </div>
+          </div>
         </div>
       </section>
     </main>
@@ -424,6 +480,10 @@ const buyLoading = ref(false);
 const buyMessage = ref('');
 const buyError = ref(false);
 
+// === State: รายการสั่งซื้อ ===
+const orders = ref([]);
+const ordersLoading = ref(false);
+
 // === State & Form: แก้ไข ===
 const editTarget = ref(null);
 const editForm = reactive({
@@ -536,6 +596,30 @@ async function fetchListings() {
   }
 }
 
+// === Logic: ดึงรายการสั่งซื้อ (แท็บ รายการสั่งซื้อ) ===
+async function fetchOrders() {
+  ordersLoading.value = true;
+  try {
+    // 1. ส่งรีเควสไปหา API รายการสั่งซื้อโดยตรง
+    const res = await fetch(`${apiBase}/api/orders`);
+    if (res.ok) {
+      orders.value = await res.json();
+    } else {
+      // 2. Fallback: กรณี Backend ไม่มี endpoint /api/orders, ทำการฟิลเตอร์สินค้าที่ถูกซื้อแล้วจาก listings แทน
+      const listingsRes = await fetch(`${apiBase}/api/listings`);
+      if (listingsRes.ok) {
+        const allListings = await listingsRes.json();
+        orders.value = allListings.filter(item => item.status === 'sold' || item.is_sold || item.buyer_name);
+      }
+    }
+  } catch {
+    // Fallback แผนสำรองกรณีเชื่อมต่อ API ขัดข้อง
+    orders.value = listings.value.filter(item => item.status === 'sold' || item.is_sold || item.buyer_name);
+  } finally {
+    ordersLoading.value = false;
+  }
+}
+
 function openReview(item) {
   reviewTarget.value = item;
   reviewForm.buyerName = '';
@@ -592,6 +676,7 @@ async function submitBuy() {
     setTimeout(() => {
       buyTarget.value = null;
       fetchListings();
+      fetchOrders(); // อัปเดตรายการหน้าสั่งซื้อทันที
     }, 1500);
   } catch (err) {
     buyError.value = true;
@@ -668,6 +753,7 @@ async function submitDelete() {
     setTimeout(() => {
       deleteTarget.value = null;
       fetchListings();
+      fetchOrders(); // ดึงข้อมูลใหม่
     }, 1200);
   } catch (err) {
     deleteError.value = true;
@@ -680,6 +766,7 @@ async function submitDelete() {
 onMounted(() => {
   checkHealth();
   fetchListings();
+  fetchOrders();
 });
 </script>
 
@@ -703,7 +790,7 @@ onMounted(() => {
 }
 
 * { box-sizing: border-box; }
-body { margin: 0; }
+body { margin: 0; background: var(--bg); color: var(--text); }
 
 .app {
   background: var(--bg);
@@ -772,89 +859,259 @@ body { margin: 0; }
 .field { display: flex; flex-direction: column; gap: 6px; flex: 1; min-width: 180px; }
 .field--tight { min-width: 140px; }
 .field__label { font-size: 12px; color: var(--muted); font-family: 'JetBrains Mono', monospace; }
-.field__input, .field__file {
-  background: var(--panel-2); border: 1px solid var(--border); border-radius: 6px;
-  padding: 10px 12px; color: var(--text); font-size: 14px; outline: none;
+.field__input, .field__textarea, .field__range {
+  background: var(--panel-2);
+  border: 1px solid var(--border);
+  color: var(--text);
+  border-radius: 6px;
+  padding: 10px 14px;
+  font-size: 14px;
+  outline: none;
+  transition: border-color .15s ease;
 }
-.field__input:focus { border-color: var(--accent); }
-.field__textarea { min-height: 70px; resize: vertical; font-family: inherit; }
-.field__range { accent-color: var(--accent); }
+.field__input:focus, .field__textarea:focus { border-color: var(--accent); }
+.field__textarea { resize: vertical; min-height: 80px; }
+.field__file { color: var(--muted); font-size: 13px; }
 
-.preview { max-width: 120px; margin-top: 8px; border-radius: 8px; border: 1px solid var(--border); }
-.preview--round { border-radius: 50%; width: 96px; height: 96px; object-fit: cover; }
+/* ---------- Preview ---------- */
+.preview { max-width: 120px; border-radius: 6px; margin-top: 10px; border: 1px solid var(--border); }
+.preview--round { border-radius: 50%; aspect-ratio: 1; object-fit: cover; }
 
-.terminal-frame { border: 1px solid var(--border); border-radius: 8px; overflow: hidden; margin-top: 10px; background: #000; }
-.terminal-frame--sm { margin: 12px 0; }
-.terminal-frame__bar { display: flex; align-items: center; gap: 6px; background: #1a1e24; padding: 6px 10px; }
-.dotbtn { width: 9px; height: 9px; border-radius: 50%; display: inline-block; }
-.dotbtn--red { background: #F2545B; } .dotbtn--yellow { background: #F5A623; } .dotbtn--green { background: #5EEAD4; }
-.terminal-frame__label { font-family: 'JetBrains Mono', monospace; font-size: 10px; color: var(--muted); margin-left: 6px; }
-.terminal-frame__img { display: block; width: 100%; max-height: 200px; object-fit: cover; }
-
-.btn { border-radius: 6px; padding: 10px 18px; font-size: 14px; font-weight: 600; cursor: pointer; border: 1px solid transparent; width: fit-content; }
+/* ---------- Buttons ---------- */
+.btn {
+  display: inline-flex; align-items: center; justify-content: center;
+  padding: 10px 20px; border-radius: 6px; font-size: 14px; font-weight: 600;
+  cursor: pointer; border: 1px solid transparent; transition: all .15s ease;
+  font-family: inherit;
+}
 .btn--primary { background: var(--accent); color: #0A1512; }
-.btn--primary:disabled { opacity: 0.6; cursor: not-allowed; }
-.btn--outline { background: transparent; border-color: var(--accent-dim); color: var(--accent); align-self: flex-end; }
-.btn--ghost { background: transparent; border-color: var(--border); color: var(--text); }
+.btn--primary:hover { background: #4ddcd0; }
+.btn--primary:disabled { background: var(--border); color: var(--muted); cursor: not-allowed; }
+.btn--outline { background: transparent; border-color: var(--border); color: var(--text); }
+.btn--outline:hover { border-color: var(--accent-dim); }
+.btn--success { background: #10B981; color: white; }
+.btn--success:hover { background: #059669; }
+.btn--warning { background: var(--warn); color: #0F1216; }
+.btn--warning:hover { background: #e0921b; }
+.btn--danger { background: var(--danger); color: white; }
+.btn--danger:hover { background: #d94148; }
+.btn--ghost { background: transparent; color: var(--muted); }
+.btn--ghost:hover { color: var(--text); background: rgba(255,255,255,0.05); }
 .btn--sm { padding: 6px 12px; font-size: 12px; }
-
-/* Dynamic state buttons */
-.btn--success { background: var(--good); color: #0A1512; }
-.btn--warning { background: var(--warn); color: #0A1512; }
-.btn--danger { background: var(--danger); color: #FFF; }
-.btn--success:disabled, .btn--warning:disabled, .btn--danger:disabled { opacity: 0.5; cursor: not-allowed; }
-
-.formmsg { font-size: 13px; padding: 8px 12px; border-radius: 6px; }
-.formmsg--ok { background: rgba(94,234,212,0.12); color: var(--accent); }
-.formmsg--error { background: rgba(242,84,91,0.12); color: var(--danger); }
-
-/* ---------- Filters ---------- */
-.filters { display: flex; gap: 14px; flex-wrap: wrap; align-items: flex-end; margin-bottom: 24px; padding-bottom: 20px; border-bottom: 1px dashed var(--border); }
-
-/* ---------- Card grid ---------- */
-.grid { display: grid; grid-template-columns: repeat(auto-fill, minmax(280px, 1fr)); gap: 18px; }
-.card { background: var(--panel-2); border: 1px solid var(--border); border-radius: var(--radius); padding: 16px; display: flex; flex-direction: column; gap: 10px; }
-.card__spechead { display: flex; justify-content: space-between; align-items: center; }
-.card__brand { font-family: 'JetBrains Mono', monospace; font-weight: 700; color: var(--accent); }
-.card__price { font-weight: 700; font-size: 16px; }
-.spectable { display: grid; grid-template-columns: 1fr 1fr; gap: 6px 12px; margin: 0; font-size: 12px; }
-.spectable div { display: flex; justify-content: space-between; gap: 6px; border-bottom: 1px dotted var(--border); padding-bottom: 3px; }
-.spectable dt { color: var(--muted); font-family: 'JetBrains Mono', monospace; }
-.spectable dd { margin: 0; text-align: right; }
-.card__defects { font-size: 12px; color: var(--warn); margin: 0; }
-
-/* Container for 3 main buttons inside a card */
-.card__actions { display: flex; gap: 6px; margin-top: 8px; border-top: 1px solid var(--border); padding-top: 12px; }
 .flex-1 { flex: 1; }
 
-.card__footer { display: flex; justify-content: space-between; align-items: center; margin-top: auto; padding-top: 8px; }
-.card__seller { font-size: 12px; color: var(--muted); }
+/* ---------- Message Info ---------- */
+.formmsg { font-size: 13px; font-family: 'JetBrains Mono', monospace; margin-top: 8px; }
+.formmsg--error { color: var(--danger); }
+.formmsg--ok { color: var(--accent); }
 
-.battery { display: flex; align-items: center; gap: 8px; }
-.battery__label { font-size: 11px; font-family: 'JetBrains Mono', monospace; color: var(--muted); width: 60px; }
-.battery__gauge { flex: 1; height: 8px; background: var(--panel); border: 1px solid var(--border); border-radius: 4px; overflow: hidden; }
-.battery__fill { height: 100%; }
+/* ---------- Empty State ---------- */
+.empty {
+  text-align: center; color: var(--muted); padding: 48px; border: 1px dashed var(--border);
+  border-radius: var(--radius); font-size: 14px;
+}
+
+/* ---------- Filters ---------- */
+.filters {
+  display: flex; gap: 12px; flex-wrap: wrap; margin-bottom: 24px;
+  background: var(--panel-2); padding: 16px; border-radius: var(--radius);
+  border: 1px solid var(--border); align-items: flex-end;
+}
+
+/* ---------- Product Grid & Card ---------- */
+.grid { display: grid; grid-template-columns: repeat(auto-fill, minmax(280px, 1fr)); gap: 24px; }
+.card {
+  background: var(--panel-2); border: 1px solid var(--border); border-radius: var(--radius);
+  padding: 16px; display: flex; flex-direction: column; gap: 12px; position: relative;
+}
+.card__spechead { display: flex; justify-content: space-between; align-items: center; }
+.card__brand { font-weight: 700; font-size: 16px; color: var(--accent); }
+.card__price { font-family: 'JetBrains Mono', monospace; font-weight: 700; color: #fff; font-size: 16px; }
+.card__defects { font-size: 12px; color: var(--warn); margin: 0; background: rgba(245,166,35,0.08); padding: 6px 10px; border-radius: 4px; border-left: 2px solid var(--warn); }
+.card__actions { display: flex; gap: 8px; }
+.card__footer { display: flex; justify-content: space-between; align-items: center; margin-top: auto; border-top: 1px solid var(--border); padding-top: 10px; font-size: 11px; }
+.card__seller { color: var(--muted); }
+
+/* ---------- Terminal Frame ---------- */
+.terminal-frame {
+  border: 1px solid var(--border); border-radius: 6px; overflow: hidden; background: #000;
+  position: relative;
+}
+.terminal-frame--sm { aspect-ratio: 16/9; }
+.terminal-frame__bar {
+  background: #171B21; padding: 6px 10px; display: flex; align-items: center; gap: 6px;
+  border-bottom: 1px solid var(--border);
+}
+.terminal-frame__label { font-family: 'JetBrains Mono', monospace; font-size: 10px; color: var(--muted); margin-left: 6px; }
+.terminal-frame__img { width: 100%; height: 100%; object-fit: cover; display: block; }
+
+.dotbtn { width: 8px; height: 8px; border-radius: 50%; display: inline-block; }
+.dotbtn--red { background: #FF5F56; }
+.dotbtn--yellow { background: #FFBD2E; }
+.dotbtn--green { background: #27C93F; }
+
+/* ---------- Spec Table ---------- */
+.spectable { margin: 0; display: flex; flex-direction: column; gap: 6px; font-size: 12px; }
+.spectable div { display: flex; justify-content: space-between; border-bottom: 1px dashed rgba(255,255,255,0.05); padding-bottom: 4px; }
+.spectable dt { color: var(--muted); margin: 0; font-family: 'JetBrains Mono', monospace; }
+.spectable dd { color: var(--text); margin: 0; font-weight: 500; text-align: right; }
+
+/* ---------- Battery ---------- */
+.battery { display: flex; align-items: center; justify-content: space-between; font-size: 11px; }
+.battery__label { color: var(--muted); font-family: 'JetBrains Mono', monospace; }
+.battery__gauge { width: 80px; height: 6px; background: rgba(255,255,255,0.1); border-radius: 3px; overflow: hidden; }
+.battery__fill { height: 100%; border-radius: 3px; }
 .battery__fill--good { background: var(--good); }
 .battery__fill--mid { background: var(--mid); }
 .battery__fill--low { background: var(--low); }
 
-.empty { color: var(--muted); padding: 40px 0; text-align: center; font-family: 'JetBrains Mono', monospace; }
-
-/* ---------- Modal ---------- */
-.modal-backdrop { position: fixed; inset: 0; background: rgba(0,0,0,0.6); display: flex; align-items: center; justify-content: center; padding: 20px; z-index: 1000; }
-.modal { background: var(--panel); border: 1px solid var(--border); border-radius: var(--radius); padding: 24px; width: 100%; max-width: 420px; }
-.modal--large { max-width: 680px; max-height: 85vh; overflow-y: auto; }
-.modal__desc { font-size: 13px; color: var(--muted); margin: 8px 0 16px 0; }
-.text-accent { color: var(--accent); }
-.modal__actions { display: flex; gap: 10px; justify-content: flex-end; margin-top: 16px; }
-.stars { display: flex; gap: 4px; font-size: 24px; cursor: pointer; }
-.star { color: var(--border); }
+/* ---------- Review Stars ---------- */
+.stars { display: flex; gap: 4px; }
+.star { font-size: 20px; color: var(--border); cursor: pointer; transition: color .15s; }
 .star--on { color: var(--warn); }
 
-.footer { text-align: center; padding: 18px; font-size: 11px; color: var(--muted); border-top: 1px solid var(--border); font-family: 'JetBrains Mono', monospace; }
+/* ---------- Modals ---------- */
+.modal-backdrop {
+  position: fixed; top: 0; left: 0; right: 0; bottom: 0; background: rgba(0,0,0,0.75);
+  display: flex; align-items: center; justify-content: center; z-index: 100; 
+  padding: 16px; /* ระยะห่างจากขอบจอ */
+  backdrop-filter: blur(4px);
+}
+.modal {
+  background: var(--panel); border: 1px solid var(--border); border-radius: var(--radius);
+  padding: 24px; max-width: 500px; width: 100%; box-shadow: 0 10px 25px rgba(0,0,0,0.5);
+  
+  /* [เพิ่มใหม่] เพื่อให้หน้าต่างไม่สูงเกินจอ และเลื่อน (Scroll) ดูเนื้อหาได้ */
+  max-height: 90vh; 
+  overflow-y: auto; 
+}
+.modal--large { max-width: 720px; }
+.modal__desc { color: var(--muted); font-size: 13px; line-height: 1.5; margin: 10px 0 20px 0; }
+.modal__actions { display: flex; justify-content: flex-end; gap: 12px; margin-top: 24px; }
+.text-accent { color: var(--accent); }
 
-@media (max-width: 640px) {
-  .topbar { flex-direction: column; align-items: flex-start; gap: 12px; }
-  .main { padding: 20px 16px; }
+/* [เพิ่มใหม่] Responsive สำหรับหน้าจอมือถือโดยเฉพาะ */
+@media (max-width: 600px) {
+  .modal-backdrop {
+    padding: 10px; /* ลดขอบรอบนอกลง เพื่อให้มีพื้นที่แสดงกล่องมากขึ้น */
+  }
+  .modal {
+    padding: 16px; /* ลดช่องว่างด้านในกล่องลง ไม่ให้อึดอัดเกินไปบนมือถือ */
+  }
+  .modal__actions {
+    /* (ตัวเลือก) ปรับให้ปุ่มเต็มความกว้างบนมือถือ ถ้าต้องการให้กดง่ายขึ้น */
+    flex-direction: column-reverse; 
+    width: 100%;
+  }
+  .modal__actions .btn {
+    width: 100%;
+  }
+}
+
+/* ---------- Footer ---------- */
+.footer { text-align: center; padding: 24px; font-size: 11px; color: var(--muted); border-top: 1px solid var(--border); font-family: 'JetBrains Mono', monospace; }
+
+/* =======================================================
+   ========== NEW CUSTOM STYLES (สไตล์ที่เพิ่มเติมเข้ามา) ==========
+   ======================================================= */
+
+/* 1. สไตล์ป้ายและไอคอน "ซื้อแล้ว" บนการ์ดสินค้า */
+.card__sold-badge {
+  position: absolute;
+  top: 12px;
+  right: 12px;
+  background: rgba(16, 185, 129, 0.95); /* สีเขียว */
+  color: #ffffff;
+  padding: 4px 10px;
+  border-radius: 6px;
+  font-size: 11px;
+  font-weight: 700;
+  z-index: 10;
+  display: flex;
+  align-items: center;
+  gap: 4px;
+  box-shadow: 0 4px 10px rgba(0, 0, 0, 0.35);
+  border: 1px solid rgba(255, 255, 255, 0.15);
+  text-transform: uppercase;
+}
+.card__sold-icon {
+  font-size: 10px;
+}
+
+/* 2. สไตล์หน้ากริดของรายการสั่งซื้อยืนยันแล้ว */
+.orders-grid {
+  display: grid;
+  grid-template-columns: repeat(auto-fill, minmax(320px, 1fr));
+  gap: 20px;
+  margin-top: 15px;
+}
+.order-card {
+  background: var(--panel-2);
+  border: 1px solid var(--border);
+  border-radius: var(--radius);
+  padding: 20px;
+  display: flex;
+  flex-direction: column;
+  gap: 12px;
+  box-shadow: 0 4px 15px rgba(0, 0, 0, 0.2);
+}
+.order-card__header {
+  display: flex;
+  justify-content: space-between;
+  align-items: center;
+}
+.order-card__badge {
+  background: rgba(94, 234, 212, 0.1);
+  color: var(--accent);
+  border: 1px solid var(--accent-dim);
+  font-size: 11px;
+  padding: 3px 8px;
+  border-radius: 4px;
+  font-weight: 700;
+}
+.order-card__id {
+  font-family: 'JetBrains Mono', monospace;
+  font-size: 11px;
+  color: var(--muted);
+}
+.order-card__title {
+  font-size: 18px;
+  font-weight: 700;
+  color: #fff;
+}
+.order-card__price {
+  font-size: 20px;
+  font-weight: 800;
+  color: var(--accent);
+  font-family: 'JetBrains Mono', monospace;
+}
+.order-card__spec-box {
+  font-size: 11px;
+  color: var(--muted);
+  background: rgba(255, 255, 255, 0.02);
+  padding: 6px 10px;
+  border-radius: 4px;
+}
+.order-card__divider {
+  border: 0;
+  border-top: 1px solid var(--border);
+  margin: 4px 0;
+}
+.order-card__info {
+  display: flex;
+  flex-direction: column;
+  gap: 8px;
+  font-size: 13px;
+}
+.order-card__info-row {
+  display: flex;
+  justify-content: space-between;
+}
+.order-card__label {
+  color: var(--muted);
+}
+.order-card__value {
+  color: var(--text);
+  font-weight: 500;
 }
 </style>
