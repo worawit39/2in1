@@ -295,5 +295,12 @@ function validateLaptopPayload(payload, partial = false) {
   return true;
 }
 
+if (process.env.NODE_ENV !== 'test') {
+  const PORT = process.env.PORT || 3000;
+  app.listen(PORT, () => {
+    console.log(`Server is running on port ${PORT}`);
+  });
+}
+
 // 2. ปรับการ Export ด้านล่างสุดให้ส่งออกทั้ง app และฟังก์ชันทดสอบ
 module.exports = { app, validateLaptopPayload };
