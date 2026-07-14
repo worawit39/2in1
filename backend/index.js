@@ -270,17 +270,30 @@ app.use((req, res) => {
 
 // Only start listening (and connect to DB) when this file is run directly,
 // so it can be safely `require()`-d from tests without opening a real port.
-if (require.main === module) {
-  initDb()
-    .then(() => {
-      app.listen(PORT, () => {
-        console.log(`Marketplace backend listening on port ${PORT}`);
-      });
-    })
-    .catch((err) => {
-      console.error('Failed to initialize database:', err);
-      process.exit(1);
-    });
+// 1. เพิ่มฟังก์ชันตรวจสอบข้อมูลแล็ปท็อปตามที่ไฟล์เทสคาดหวังไว้
+function validateLaptopPayload(payload, partial = false) {
+  // หากเป็นการอัปเดตแบบบางส่วน (PUT) และไม่มีข้อมูลส่งมาเลย ให้ผ่าน
+  if (partial && Object.keys(payload).length === 0) return true;
+
+  const { seller_name, brand, model, price } = payload;
+
+  // หากไม่ใช่การอัปเดตบางส่วน (เช่น POST) ต้องเช็กว่ามีฟิลด์บังคับครบไหม
+  if (!partial) {
+    if (!seller_name || !brand || !model || price === undefined) {
+      return false;
+    }
+  }
+
+  // เช็กเงื่อนไขราคา: ต้องเป็นตัวเลข และห้ามติดลบ
+  if (price !== undefined) {
+    const numPrice = Number(price);
+    if (isNaN(numPrice) || numPrice < 0) {
+      return false;
+    }
+  }
+
+  return true;
 }
 
-module.exports = app;
+// 2. ปรับการ Export ด้านล่างสุดให้ส่งออกทั้ง app และฟังก์ชันทดสอบ
+module.exports = { app, validateLaptopPayload };
