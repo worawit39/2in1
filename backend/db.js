@@ -14,10 +14,11 @@ const connectionConfig = process.env.DATABASE_URL
     };
 
 const pool = new Pool({
-  ...connectionConfig,
-  max: 10,
-  idleTimeoutMillis: 30000,
-  connectionTimeoutMillis: 5000
+  host: process.env.DB_HOST || 'db',         // บังคับให้ถ้าไม่มีค่า ให้ชี้ไปที่ตู้ db แทน
+  port: parseInt(process.env.DB_PORT) || 5432,
+  user: process.env.DB_USER || 'postgres',
+  password: process.env.DB_PASSWORD || 'change_this_password',
+  database: process.env.DB_NAME || 'laptop_market',
 });
 
 pool.on('error', (err) => {
