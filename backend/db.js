@@ -1,50 +1,78 @@
 const { Pool } = require('pg');
 
-// ค่าเชื่อมต่อฐานข้อมูลทั้งหมดอ่านจาก Environment Variables
-// (ให้ตรงกับที่กำหนดใน docker-compose.yml / docker-compose.prod.yml / .env)
+// Prefer a single DATABASE_URL if provided, otherwise fall back to
+// individual PG* environment variables (both are supported so this
+// works the same whether run via Docker Compose or locally).
+const connectionConfig = process.env.DATABASE_URL
+  ? { connectionString: process.env.DATABASE_URL }
+  : {
+      host: process.env.PGHOST || 'localhost',
+      port: Number(process.env.PGPORT) || 5432,
+      user: process.env.PGUSER || 'marketplace_user',
+      password: process.env.PGPASSWORD || 'marketplace_pass',
+      database: process.env.PGDATABASE || 'marketplace_db'
+    };
+
 const pool = new Pool({
-  host: process.env.DB_HOST || 'localhost',
-  port: parseInt(process.env.DB_PORT, 10) || 5432,
-  user: process.env.DB_USER || 'postgres',
-  password: process.env.DB_PASSWORD || 'change_this_password',
-  database: process.env.DB_NAME || 'laptop_market',
+  ...connectionConfig,
+  max: 10,
+  idleTimeoutMillis: 30000,
+  connectionTimeoutMillis: 5000
 });
 
 pool.on('error', (err) => {
-  // ป้องกันไม่ให้ error จาก idle client ทำให้ทั้งโปรเซสล่ม
+  // Prevents an idle client error from crashing the whole process
   console.error('Unexpected PostgreSQL pool error:', err.message);
 });
 
 /**
- * สร้างตารางที่จำเป็นทั้งหมด หากยังไม่มี
- * เรียกใช้ได้ทุกครั้งที่ backend เริ่มทำงาน (ปลอดภัย ไม่ทับข้อมูลเดิม)
+ * Creates all required tables if they do not already exist.
+ * Safe to call on every backend startup.
  */
 async function initDb() {
-  const createLaptopsTable = `
-    CREATE TABLE IF NOT EXISTS laptops (
+  const createSellersTable = `
+    CREATE TABLE IF NOT EXISTS sellers (
       id SERIAL PRIMARY KEY,
-      seller_name VARCHAR(150) NOT NULL,
-      category VARCHAR(50) NOT NULL,
-      brand VARCHAR(100) NOT NULL,
-      model VARCHAR(150) NOT NULL,
-      cpu VARCHAR(150) DEFAULT '',
-      ram VARCHAR(50) DEFAULT '',
-      storage VARCHAR(50) DEFAULT '',
-      gpu VARCHAR(150) DEFAULT '',
-      screen_size VARCHAR(50) DEFAULT '',
-      condition_note VARCHAR(255) DEFAULT '',
-      price NUMERIC(10, 2) NOT NULL CHECK (price >= 0),
-      description TEXT DEFAULT '',
-      image_url TEXT DEFAULT '',
-      status VARCHAR(20) NOT NULL DEFAULT 'available' CHECK (status IN ('available', 'sold')),
-      buyer_name VARCHAR(150),
-      ordered_at TIMESTAMPTZ,
-      created_at TIMESTAMPTZ NOT NULL DEFAULT NOW(),
-      updated_at TIMESTAMPTZ NOT NULL DEFAULT NOW()
+      full_name VARCHAR(150) NOT NULL,
+      id_card_number VARCHAR(20) NOT NULL UNIQUE,
+      face_photo_url TEXT,
+      kyc_verified BOOLEAN NOT NULL DEFAULT TRUE,
+      created_at TIMESTAMPTZ NOT NULL DEFAULT NOW()
     );
   `;
 
-  await pool.query(createLaptopsTable);
+  const createListingsTable = `
+    CREATE TABLE IF NOT EXISTS listings (
+      id SERIAL PRIMARY KEY,
+      seller_id INTEGER NOT NULL REFERENCES sellers(id) ON DELETE CASCADE,
+      brand VARCHAR(100) NOT NULL,
+      cpu VARCHAR(150) NOT NULL,
+      ram VARCHAR(50) NOT NULL,
+      gpu VARCHAR(150) NOT NULL,
+      battery_health INTEGER NOT NULL CHECK (battery_health >= 0 AND battery_health <= 100),
+      defects TEXT DEFAULT '',
+      price NUMERIC(10, 2) NOT NULL CHECK (price >= 0),
+      usage_type VARCHAR(50) NOT NULL,
+      province VARCHAR(100) NOT NULL,
+      boot_screen_photo_url TEXT NOT NULL,
+      created_at TIMESTAMPTZ NOT NULL DEFAULT NOW()
+    );
+  `;
+
+  const createReviewsTable = `
+    CREATE TABLE IF NOT EXISTS reviews (
+      id SERIAL PRIMARY KEY,
+      seller_id INTEGER NOT NULL REFERENCES sellers(id) ON DELETE CASCADE,
+      buyer_name VARCHAR(150) NOT NULL,
+      rating INTEGER NOT NULL CHECK (rating >= 1 AND rating <= 5),
+      comment TEXT DEFAULT '',
+      created_at TIMESTAMPTZ NOT NULL DEFAULT NOW()
+    );
+  `;
+
+  await pool.query(createSellersTable);
+  await pool.query(createListingsTable);
+  await pool.query(createReviewsTable);
 }
 
 module.exports = { pool, initDb };
