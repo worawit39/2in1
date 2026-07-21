@@ -283,4 +283,12 @@ if (require.main === module) {
     });
 }
 
-module.exports = app;
+const express = require('express');
+const app = express();
+// ดึงฟังก์ชันมาจากไฟล์อื่นก่อน
+const { validateLaptopPayload } = require('./ฟังก์ชันของคุณ'); 
+
+// ... โค้ดอื่นๆ ของคุณ ...
+
+// ส่งออกพร้อมกันที่ท้ายไฟล์
+module.exports = { app, validateLaptopPayload };
