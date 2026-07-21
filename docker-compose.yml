@@ -1,70 +1,61 @@
 version: "3.9"
 
+# docker-compose.yml — สำหรับ Development
+# build image ของ backend/frontend จาก source code ในเครื่อง แล้วรันร่วมกับ PostgreSQL
+
 services:
-  postgres:
+  db:
     image: postgres:16-alpine
-    container_name: marketplace_postgres
+    container_name: notebook-shop-db
     restart: unless-stopped
     environment:
-      POSTGRES_USER: ${POSTGRES_USER:-marketplace_user}
-      POSTGRES_PASSWORD: ${POSTGRES_PASSWORD:-marketplace_pass}
-      POSTGRES_DB: ${POSTGRES_DB:-marketplace_db}
-    ports:
-      - "5432:5432"
+      POSTGRES_USER: ${DB_USER:-postgres}
+      POSTGRES_PASSWORD: ${DB_PASSWORD:-change_this_password}
+      POSTGRES_DB: ${DB_NAME:-laptop_market}
+    # หมายเหตุความปลอดภัย: ไม่ expose port 5432 ออกสู่ host โดย default
+    # backend เข้าถึง db ผ่าน docker network ภายใน (hostname "db") อยู่แล้ว ไม่จำเป็นต้องเปิดพอร์ตออกนอกเครื่อง
+    # ถ้าต้องการต่อด้วย psql/DBeaver จากเครื่อง host เพื่อ debug ให้ uncomment บรรทัดด้านล่าง
+    # ports:
+    #   - "5432:5432"
     volumes:
       - pgdata:/var/lib/postgresql/data
     healthcheck:
-      test: ["CMD-SHELL", "pg_isready -U ${POSTGRES_USER:-marketplace_user} -d ${POSTGRES_DB:-marketplace_db}"]
+      test: ["CMD-SHELL", "pg_isready -U ${DB_USER:-postgres} -d ${DB_NAME:-laptop_market}"]
       interval: 5s
       timeout: 5s
       retries: 10
-    networks:
-      - marketplace_net
+      start_period: 10s
 
   backend:
     build:
       context: ./backend
       dockerfile: Dockerfile
-    container_name: marketplace_backend
+    container_name: notebook-shop-backend
     restart: unless-stopped
-    env_file:
-      - .env
     environment:
       NODE_ENV: development
-      PORT: 3000
-      DATABASE_URL: postgres://${POSTGRES_USER:-marketplace_user}:${POSTGRES_PASSWORD:-marketplace_pass}@postgres:5432/${POSTGRES_DB:-marketplace_db}
+      DB_HOST: db
+      DB_PORT: 5432
+      DB_USER: ${DB_USER:-postgres}
+      DB_PASSWORD: ${DB_PASSWORD:-change_this_password}
+      DB_NAME: ${DB_NAME:-laptop_market}
+      PORT: ${PORT:-3000}
     ports:
-      - "3000:3000"
-    volumes:
-      - ./backend:/app
-      - /app/node_modules
+      - "${BACKEND_PORT:-3000}:3000"
     depends_on:
-      postgres:
+      db:
         condition: service_healthy
-    networks:
-      - marketplace_net
 
   frontend:
     build:
       context: ./frontend
       dockerfile: Dockerfile
-    container_name: marketplace_frontend
+    container_name: notebook-shop-frontend
     restart: unless-stopped
-    environment:
-      VITE_API_BASE_URL: http://localhost:3000
     ports:
-      - "5173:80"
-    volumes:
-      - ./frontend:/app
-      - /app/node_modules
+      - "${FRONTEND_PORT:-8080}:80"
     depends_on:
       - backend
-    networks:
-      - marketplace_net
-
-networks:
-  marketplace_net:
-    driver: bridge
 
 volumes:
   pgdata:
