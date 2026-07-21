@@ -283,7 +283,7 @@ if (require.main === module) {
     });
 }
 
-const express = require('express');
+
 const app = express();
 // ดึงฟังก์ชันมาจากไฟล์อื่นก่อน
 const { validateLaptopPayload } = require('./ฟังก์ชันของคุณ'); 
