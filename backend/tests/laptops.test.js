@@ -6,7 +6,8 @@
 const test = require('node:test');
 const assert = require('node:assert');
 const request = require('supertest');
-const { app, validateLaptopPayload } = require('../index');
+const { app } = require('../index');
+const { validateLaptopPayload } = require('../utils');
 
 test('GET /health returns status ok', async () => {
   const res = await request(app).get('/health');

@@ -9,7 +9,8 @@ jest.mock('../db', () => ({
 }));
 
 const { pool } = require('../db');
-const app = require('../index');
+const { app } = require('../index'); 
+
 
 beforeEach(() => {
   pool.query.mockReset();
