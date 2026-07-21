@@ -1,5 +1,5 @@
 const { validateLaptopPayload } = require('./utils');
-const { validateLaptopPayload } = require('./db');
+
 require('dotenv').config();
 const express = require('express');
 const cors = require('cors');
