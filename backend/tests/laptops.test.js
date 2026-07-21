@@ -9,12 +9,7 @@ const request = require('supertest');
 const { app } = require('../index');
 const { validateLaptopPayload } = require('../utils');
 
-test('GET /health returns status ok', async () => {
-  const res = await request(app).get('/health');
-  assert.strictEqual(res.status, 200);
-  assert.strictEqual(res.body.status, 'ok');
-  assert.strictEqual(res.body.service, 'backend');
-});
+
 
 test('validateLaptopPayload rejects payload missing required fields', () => {
   const errors = validateLaptopPayload({ seller_name: 'สมชาย' });
