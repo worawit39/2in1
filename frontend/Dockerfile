@@ -1,18 +1,30 @@
-# frontend/Dockerfile
-# ใช้ nginx:alpine เป็น base image และ COPY ไฟล์ static (HTML + Vanilla JS) เข้าไปตรงๆ
-# (ไม่ build ด้วย Node/Vite — โปรเจกต์นี้ใช้ Frontend แบบ HTML + Vanilla JS ตามข้อกำหนด)
-FROM nginx:alpine
+# ---------- Stage 1: Build the Vue app with Node ----------
+FROM node:20-alpine AS build
+WORKDIR /app
 
-# ลบไฟล์ default ของ nginx ออกก่อน
+COPY package*.json ./
+RUN npm install
+
+COPY . .
+RUN npm run build
+
+# ---------- Stage 2: Serve the static build with Nginx ----------
+FROM nginx:1.27-alpine AS production
+
+# Remove default nginx static assets and replace with our build output
 RUN rm -rf /usr/share/nginx/html/*
+COPY --from=build /app/dist /usr/share/nginx/html
 
-# คัดลอกไฟล์หน้าเว็บเข้าไปใน document root
-COPY index.html /usr/share/nginx/html/index.html
-COPY app.js /usr/share/nginx/html/app.js
-
-# คัดลอก nginx config ที่ตั้งค่า proxy /api และ /health ไปยัง backend service
-COPY nginx.conf /etc/nginx/conf.d/default.conf
+# SPA fallback: any unknown route serves index.html
+RUN printf 'server {\n\
+    listen 80;\n\
+    server_name _;\n\
+    root /usr/share/nginx/html;\n\
+    index index.html;\n\
+    location / {\n\
+        try_files $uri $uri/ /index.html;\n\
+    }\n\
+}\n' > /etc/nginx/conf.d/default.conf
 
 EXPOSE 80
-
 CMD ["nginx", "-g", "daemon off;"]

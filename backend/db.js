@@ -1,5 +1,18 @@
 const { Pool } = require('pg');
 
+// Prefer a single DATABASE_URL if provided, otherwise fall back to
+// individual PG* environment variables (both are supported so this
+// works the same whether run via Docker Compose or locally).
+const connectionConfig = process.env.DATABASE_URL
+  ? { connectionString: process.env.DATABASE_URL }
+  : {
+      host: process.env.PGHOST || 'localhost',
+      port: Number(process.env.PGPORT) || 5432,
+      user: process.env.PGUSER || 'marketplace_user',
+      password: process.env.PGPASSWORD || 'marketplace_pass',
+      database: process.env.PGDATABASE || 'marketplace_db'
+    };
+
 const pool = new Pool({
   host: process.env.DB_HOST || 'db',         // บังคับให้ถ้าไม่มีค่า ให้ชี้ไปที่ตู้ db แทน
   port: parseInt(process.env.DB_PORT) || 5432,
