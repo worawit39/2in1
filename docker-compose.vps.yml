@@ -1,0 +1,68 @@
+# docker-compose.vps.yml
+# ใช้เฉพาะตอน deploy ขึ้น vps01 (เครื่องฝึกที่ใช้ร่วมกันทั้งชั้น) ผ่าน GitHub Actions CD เท่านั้น
+# ต่างจาก docker-compose.prod.yml ตรงที่:
+#   - ตั้งชื่อ container/network/volume ด้วย prefix ${APP_PREFIX} เพื่อไม่ให้ชนกับเพื่อนคนอื่นบนเครื่องเดียวกัน
+#   - publish ออก host แค่พอร์ตเดียว (frontend) ผ่าน ${APP_PORT} — backend และ db ไม่ publish ออก host เลย
+#     เข้าถึงได้แค่ผ่าน networkภายในของตัวเองเท่านั้น (frontend/nginx เป็นคน proxy /api ให้)
+#
+# ค่าตัวแปรทั้งหมดถูกเติมจาก .env ที่ CD workflow สร้างให้อัตโนมัติบนเครื่อง VPS ตอน deploy
+# (ดู .github/workflows/cd.yml job "deploy")
+
+services:
+  db:
+    image: postgres:16-alpine
+    container_name: ${APP_PREFIX}-notebook-shop-db
+    restart: unless-stopped
+    environment:
+      POSTGRES_USER: ${DB_USER:-postgres}
+      POSTGRES_PASSWORD: ${DB_PASSWORD:?DB_PASSWORD must be set}
+      POSTGRES_DB: ${DB_NAME:-laptop_market}
+    volumes:
+      - pgdata:/var/lib/postgresql/data
+    networks:
+      - appnet
+    healthcheck:
+      test: ["CMD-SHELL", "pg_isready -U ${DB_USER:-postgres} -d ${DB_NAME:-laptop_market}"]
+      interval: 5s
+      timeout: 5s
+      retries: 10
+      start_period: 10s
+
+  backend:
+    image: ${DOCKERHUB_USERNAME}/notebook-shop-backend:${IMAGE_TAG:-latest}
+    container_name: ${APP_PREFIX}-notebook-shop-backend
+    restart: unless-stopped
+    environment:
+      NODE_ENV: production
+      DB_HOST: db
+      DB_PORT: 5432
+      DB_USER: ${DB_USER:-postgres}
+      DB_PASSWORD: ${DB_PASSWORD:?DB_PASSWORD must be set}
+      DB_NAME: ${DB_NAME:-laptop_market}
+      PORT: 3000
+    networks:
+      - appnet
+    depends_on:
+      db:
+        condition: service_healthy
+    # ไม่ publish port ออก host โดยตั้งใจ — เข้าถึง backend ได้ผ่าน frontend (nginx reverse proxy) เท่านั้น
+    # ลดพื้นผิวที่เปิดออกสู่อินเทอร์เน็ตบนเครื่องที่ใช้ร่วมกับคนอื่น
+
+  frontend:
+    image: ${DOCKERHUB_USERNAME}/notebook-shop-frontend:${IMAGE_TAG:-latest}
+    container_name: ${APP_PREFIX}-notebook-shop-frontend
+    restart: unless-stopped
+    ports:
+      - "${APP_PORT:?APP_PORT must be set (host port in the range confirmed with classmates)}:80"
+    networks:
+      - appnet
+    depends_on:
+      - backend
+
+networks:
+  appnet:
+    name: ${APP_PREFIX}-notebook-shop-net
+
+volumes:
+  pgdata:
+    name: ${APP_PREFIX}-notebook-shop-pgdata

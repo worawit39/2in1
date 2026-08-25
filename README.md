@@ -47,6 +47,33 @@ docker-compose up --build
 docker-compose -f docker-compose.prod.yml up -d
 ```
 
+## 🚢 Deploy อัตโนมัติขึ้น vps01 (เครื่องฝึกที่ใช้ร่วมกันทั้งชั้น)
+
+ทุกครั้งที่ push เข้า `main`/`master`, `.github/workflows/cd.yml` จะ build + push image ขึ้น Docker Hub
+แล้ว deploy ขึ้น vps01 ให้อัตโนมัติผ่าน SSH (ใช้ `docker-compose.vps.yml` ซึ่งตั้งชื่อ container/network/volume
+ด้วย prefix ของตัวเองเพื่อไม่ให้ชนกับเพื่อนคนอื่นบนเครื่องเดียวกัน)
+
+**ต้องตั้งค่าก่อนใช้งาน** ที่ repo Settings → Secrets and variables → Actions:
+
+**Secrets** (ข้อมูลลับ อยู่แท็บ "Secrets"):
+| ชื่อ | ค่า |
+|---|---|
+| `DOCKERHUB_USERNAME` | บัญชี Docker Hub ของตัวเอง |
+| `DOCKERHUB_TOKEN` | Docker Hub Access Token ของตัวเอง |
+| `SSH_HOST` | `202.29.231.188` |
+| `SSH_PORT` | `22210` |
+| `SSH_USER` | `vps01` |
+| `SSH_PRIVATE_KEY` | private key **ของตัวเอง** ที่สร้างตอน onboarding (`~/.ssh/vps01_deploy`) — ⚠️ ห้ามใช้ shared password ของเครื่อง `vps01` เด็ดขาด ใช้ได้แค่ตอน `ssh-copy-id` ครั้งแรกเท่านั้นตามคู่มือของอาจารย์ |
+| `DB_PASSWORD` | ตั้งรหัสผ่าน PostgreSQL เอง (ใช้แค่บน container ของตัวเอง) |
+
+**Variables** (ไม่ใช่ข้อมูลลับ อยู่แท็บ "Variables" ถัดจาก Secrets):
+| ชื่อ | ค่า |
+|---|---|
+| `APP_PREFIX` | ชื่อเล่น/username ของตัวเอง (กันชน container/network กับเพื่อน) |
+| `APP_PORT` | host port ที่เลือกไว้ — **คุยกับเพื่อนแล้วว่าไม่ชนใคร** และ confirm กับอาจารย์ก่อนว่าช่วงพอร์ตที่เปิดจริงคือช่วงไหน (คู่มือ vps01 เขียนไว้ไม่ตรงกันระหว่าง `30000-30099` กับ `30100-30199`) |
+
+หลัง deploy สำเร็จ เข้าเว็บได้ที่ `http://202.29.231.188:<APP_PORT>`
+
 ## 🧪 รัน Backend แบบ Local (ไม่ผ่าน Docker)
 ```bash
 cd backend

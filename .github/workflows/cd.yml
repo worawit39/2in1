@@ -1,0 +1,138 @@
+name: CD Pipeline
+
+# CD: build + push image ขึ้น Docker Hub แล้ว deploy ขึ้น vps01 อัตโนมัติ
+# รันเฉพาะตอน push เข้า main หรือ master เท่านั้น
+# (ไม่รันตอน pull_request เพื่อกัน fork ที่ไม่น่าเชื่อถือ trigger การ push image / deploy)
+on:
+  push:
+    branches: ["main", "master"]
+
+# ยกเลิก run เก่าของ branch เดียวกันถ้ามีการ push ใหม่เข้ามาทับ ประหยัดเวลา CI/CD
+concurrency:
+  group: cd-${{ github.ref }}
+  cancel-in-progress: true
+
+jobs:
+  # -------------------------------------------------------------------------
+  # CD: Build + Push images ขึ้น Docker Hub
+  # ต้องตั้งค่า GitHub Secrets ก่อนใช้งาน (Settings -> Secrets and variables -> Actions):
+  #   - DOCKERHUB_USERNAME : ชื่อบัญชี Docker Hub
+  #   - DOCKERHUB_TOKEN    : Access Token จาก Docker Hub (Account Settings -> Security -> New Access Token)
+  # -------------------------------------------------------------------------
+  push:
+    name: Push Images to Docker Hub
+    runs-on: ubuntu-latest
+    steps:
+      - name: Checkout code
+        uses: actions/checkout@v4
+
+      - name: Set up Docker Buildx
+        uses: docker/setup-buildx-action@v3
+
+      - name: Log in to Docker Hub
+        uses: docker/login-action@v3
+        with:
+          username: ${{ secrets.DOCKERHUB_USERNAME }}
+          password: ${{ secrets.DOCKERHUB_TOKEN }}
+
+      # tag เป็นทั้ง :latest และ :<short-sha> เพื่อย้อนกลับ (rollback) ไป deploy image เวอร์ชันก่อนหน้าได้
+      # ชื่อ image ตรงกับที่ docker-compose.prod.yml อ้างอิงอยู่แล้ว
+      # (${DOCKERHUB_USERNAME}/notebook-shop-backend และ notebook-shop-frontend)
+      - name: Build & push backend image
+        uses: docker/build-push-action@v5
+        with:
+          context: ./backend
+          file: ./backend/Dockerfile
+          push: true
+          tags: |
+            ${{ secrets.DOCKERHUB_USERNAME }}/notebook-shop-backend:latest
+            ${{ secrets.DOCKERHUB_USERNAME }}/notebook-shop-backend:${{ github.sha }}
+          cache-from: type=gha
+          cache-to: type=gha,mode=max
+
+      - name: Build & push frontend image
+        uses: docker/build-push-action@v5
+        with:
+          context: ./frontend
+          file: ./frontend/Dockerfile
+          push: true
+          tags: |
+            ${{ secrets.DOCKERHUB_USERNAME }}/notebook-shop-frontend:latest
+            ${{ secrets.DOCKERHUB_USERNAME }}/notebook-shop-frontend:${{ github.sha }}
+          cache-from: type=gha
+          cache-to: type=gha,mode=max
+
+      - name: Summary
+        run: |
+          echo "### 🚀 Pushed images" >> $GITHUB_STEP_SUMMARY
+          echo "- \`${{ secrets.DOCKERHUB_USERNAME }}/notebook-shop-backend:${{ github.sha }}\`" >> $GITHUB_STEP_SUMMARY
+          echo "- \`${{ secrets.DOCKERHUB_USERNAME }}/notebook-shop-frontend:${{ github.sha }}\`" >> $GITHUB_STEP_SUMMARY
+
+  # -------------------------------------------------------------------------
+  # CD: Deploy ขึ้น vps01 (เครื่องฝึกที่ใช้ร่วมกันทั้งชั้น) ผ่าน SSH
+  #
+  # ใช้ image ที่เพิ่ง push ในขั้นตอนก่อนหน้า (pin ด้วย github.sha ไม่ใช่ :latest
+  # เพื่อให้แน่ใจว่า deploy ตรงกับ commit ที่เพิ่งผ่าน CI มาจริงๆ)
+  #
+  # ต้องตั้งค่า GitHub Secrets เพิ่ม (Settings -> Secrets and variables -> Actions -> Secrets):
+  #   - SSH_HOST, SSH_PORT, SSH_USER, SSH_PRIVATE_KEY : ตามคู่มือ vps01 (ใช้ private key ของตัวเอง
+  #     ที่สร้างตอน onboarding ผ่าน ssh-copy-id เท่านั้น — ห้ามใช้ shared password ของเครื่องเด็ดขาด)
+  #   - DB_PASSWORD : รหัสผ่าน PostgreSQL ที่จะใช้บน container ของตัวเองบน vps01
+  #
+  # และตั้งค่า GitHub Variables เพิ่ม (ในแท็บ "Variables" ถัดจาก "Secrets" หน้าเดียวกัน — ไม่ใช่ secret
+  # เพราะไม่ใช่ข้อมูลลับ แค่ไม่อยาก hardcode ใน workflow):
+  #   - APP_PREFIX : ชื่อเล่น/username ของตัวเอง ใช้กันชน container/network กับเพื่อนบนเครื่องเดียวกัน
+  #   - APP_PORT   : host port ที่เลือกไว้ (คุยกับเพื่อนแล้วว่าไม่ชนใคร ดูช่วงที่ถูกต้องกับอาจารย์ก่อน
+  #     เพราะคู่มือ vps01 มีบอกไว้ 2 ช่วงไม่ตรงกัน คือ 30000-30099 กับ 30100-30199)
+  # -------------------------------------------------------------------------
+  deploy:
+    name: Deploy to vps01
+    runs-on: ubuntu-latest
+    needs: push
+    if: github.event_name == 'push' && (github.ref == 'refs/heads/main' || github.ref == 'refs/heads/master')
+    steps:
+      - name: Checkout code
+        uses: actions/checkout@v4
+
+      - name: Copy docker-compose.vps.yml to vps01
+        uses: appleboy/scp-action@v0.1.7
+        with:
+          host: ${{ secrets.SSH_HOST }}
+          port: ${{ secrets.SSH_PORT }}
+          username: ${{ secrets.SSH_USER }}
+          key: ${{ secrets.SSH_PRIVATE_KEY }}
+          source: "docker-compose.vps.yml"
+          target: "~/apps/${{ vars.APP_PREFIX }}/"
+          strip_components: 0
+
+      - name: Write .env and deploy over SSH
+        uses: appleboy/ssh-action@v1
+        with:
+          host: ${{ secrets.SSH_HOST }}
+          port: ${{ secrets.SSH_PORT }}
+          username: ${{ secrets.SSH_USER }}
+          key: ${{ secrets.SSH_PRIVATE_KEY }}
+          script: |
+            set -e
+            cd ~/apps/${{ vars.APP_PREFIX }}
+
+            # .env ถูกสร้างใหม่ทุกครั้งที่ deploy จากค่าที่ตั้งไว้ใน GitHub Secrets/Variables
+            # (ไม่ commit ไฟล์นี้ลง repo — อยู่บนเครื่อง VPS เท่านั้น)
+            cat > .env <<ENVEOF
+            DOCKERHUB_USERNAME=${{ secrets.DOCKERHUB_USERNAME }}
+            IMAGE_TAG=${{ github.sha }}
+            APP_PREFIX=${{ vars.APP_PREFIX }}
+            APP_PORT=${{ vars.APP_PORT }}
+            DB_PASSWORD=${{ secrets.DB_PASSWORD }}
+            ENVEOF
+
+            docker compose -f docker-compose.vps.yml pull
+            docker compose -f docker-compose.vps.yml up -d
+            docker image prune -f
+
+      - name: Summary
+        run: |
+          echo "### 🚀 Deployed to vps01" >> $GITHUB_STEP_SUMMARY
+          echo "- Prefix: \`${{ vars.APP_PREFIX }}\`" >> $GITHUB_STEP_SUMMARY
+          echo "- URL: http://202.29.231.188:${{ vars.APP_PORT }}" >> $GITHUB_STEP_SUMMARY
+          echo "- Image: \`${{ github.sha }}\`" >> $GITHUB_STEP_SUMMARY
