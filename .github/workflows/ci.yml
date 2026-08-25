@@ -1,12 +1,23 @@
-name: CI Pipeline
+name: CI/CD Pipeline
 
+# CI (lint + test + build) รันทุกครั้งที่ push หรือเปิด PR เข้า main/master/develop
+# CD (build + push image ขึ้น Docker Hub) รันเฉพาะตอน push เข้า main หรือ master เท่านั้น
+# (ไม่รันตอน pull_request เพื่อกัน fork ที่ไม่น่าเชื่อถือ trigger การ push image)
 on:
   push:
-    branches: [ "main", "master", "develop" ]
+    branches: ["main", "master", "develop"]
   pull_request:
-    branches: [ "main", "master", "develop" ]
+    branches: ["main", "master", "develop"]
+
+# ยกเลิก run เก่าของ branch เดียวกันถ้ามีการ push ใหม่เข้ามาทับ ประหยัดเวลา CI
+concurrency:
+  group: ci-cd-${{ github.ref }}
+  cancel-in-progress: true
 
 jobs:
+  # -------------------------------------------------------------------------
+  # CI: Lint
+  # -------------------------------------------------------------------------
   lint:
     name: Lint Backend
     runs-on: ubuntu-latest
@@ -23,12 +34,15 @@ jobs:
 
       - name: Install backend dependencies
         working-directory: ./backend
-        run: npm install
+        run: npm ci
 
       - name: Run ESLint
         working-directory: ./backend
         run: npm run lint
 
+  # -------------------------------------------------------------------------
+  # CI: Unit Tests
+  # -------------------------------------------------------------------------
   test:
     name: Unit Tests
     runs-on: ubuntu-latest
@@ -46,12 +60,19 @@ jobs:
 
       - name: Install backend dependencies
         working-directory: ./backend
-        run: npm install
+        run: npm ci
 
       - name: Run unit tests
         working-directory: ./backend
         run: npm test
+        env:
+          # ไม่ต้องมี PostgreSQL จริงใน CI — tests mock pool.query() ทั้งหมด (ดู backend/tests/api.test.js)
+          NODE_ENV: test
 
+  # -------------------------------------------------------------------------
+  # CI: Build Docker images (validate Dockerfiles compile, ไม่ push)
+  # รันทั้งตอน push และ pull_request เพื่อดักปัญหา Dockerfile พังก่อน merge
+  # -------------------------------------------------------------------------
   build:
     name: Build Docker Images
     runs-on: ubuntu-latest
@@ -69,7 +90,9 @@ jobs:
           context: ./backend
           file: ./backend/Dockerfile
           push: false
-          tags: marketplace-backend:ci
+          tags: notebook-shop-backend:ci
+          cache-from: type=gha
+          cache-to: type=gha,mode=max
 
       - name: Build frontend image (no push)
         uses: docker/build-push-action@v5
@@ -77,4 +100,64 @@ jobs:
           context: ./frontend
           file: ./frontend/Dockerfile
           push: false
-          tags: marketplace-frontend:ci
+          tags: notebook-shop-frontend:ci
+          cache-from: type=gha
+          cache-to: type=gha,mode=max
+
+  # -------------------------------------------------------------------------
+  # CD: Build + Push images ขึ้น Docker Hub
+  # เงื่อนไข: รันเฉพาะ push (ไม่ใช่ PR) เข้า main หรือ master เท่านั้น
+  # ต้องตั้งค่า GitHub Secrets ก่อนใช้งาน (Settings -> Secrets and variables -> Actions):
+  #   - DOCKERHUB_USERNAME : ชื่อบัญชี Docker Hub
+  #   - DOCKERHUB_TOKEN    : Access Token จาก Docker Hub (Account Settings -> Security -> New Access Token)
+  # -------------------------------------------------------------------------
+  push:
+    name: Push Images to Docker Hub
+    runs-on: ubuntu-latest
+    needs: build
+    if: github.event_name == 'push' && (github.ref == 'refs/heads/main' || github.ref == 'refs/heads/master')
+    steps:
+      - name: Checkout code
+        uses: actions/checkout@v4
+
+      - name: Set up Docker Buildx
+        uses: docker/setup-buildx-action@v3
+
+      - name: Log in to Docker Hub
+        uses: docker/login-action@v3
+        with:
+          username: ${{ secrets.DOCKERHUB_USERNAME }}
+          password: ${{ secrets.DOCKERHUB_TOKEN }}
+
+      # tag เป็นทั้ง :latest และ :<short-sha> เพื่อย้อนกลับ (rollback) ไป deploy image เวอร์ชันก่อนหน้าได้
+      # ชื่อ image ตรงกับที่ docker-compose.prod.yml อ้างอิงอยู่แล้ว
+      # (${DOCKERHUB_USERNAME}/notebook-shop-backend และ notebook-shop-frontend)
+      - name: Build & push backend image
+        uses: docker/build-push-action@v5
+        with:
+          context: ./backend
+          file: ./backend/Dockerfile
+          push: true
+          tags: |
+            ${{ secrets.DOCKERHUB_USERNAME }}/notebook-shop-backend:latest
+            ${{ secrets.DOCKERHUB_USERNAME }}/notebook-shop-backend:${{ github.sha }}
+          cache-from: type=gha
+          cache-to: type=gha,mode=max
+
+      - name: Build & push frontend image
+        uses: docker/build-push-action@v5
+        with:
+          context: ./frontend
+          file: ./frontend/Dockerfile
+          push: true
+          tags: |
+            ${{ secrets.DOCKERHUB_USERNAME }}/notebook-shop-frontend:latest
+            ${{ secrets.DOCKERHUB_USERNAME }}/notebook-shop-frontend:${{ github.sha }}
+          cache-from: type=gha
+          cache-to: type=gha,mode=max
+
+      - name: Summary
+        run: |
+          echo "### 🚀 Deployed images" >> $GITHUB_STEP_SUMMARY
+          echo "- \`${{ secrets.DOCKERHUB_USERNAME }}/notebook-shop-backend:${{ github.sha }}\`" >> $GITHUB_STEP_SUMMARY
+          echo "- \`${{ secrets.DOCKERHUB_USERNAME }}/notebook-shop-frontend:${{ github.sha }}\`" >> $GITHUB_STEP_SUMMARY
