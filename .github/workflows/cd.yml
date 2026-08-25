@@ -48,7 +48,7 @@ jobs:
             ${{ secrets.DOCKERHUB_USERNAME }}/notebook-shop-backend:latest
             ${{ secrets.DOCKERHUB_USERNAME }}/notebook-shop-backend:${{ github.sha }}
           cache-from: type=gha
-          cache-to: type=gha,mode=max
+          cache-to: type=gha,mode=min
 
       - name: Build & push frontend image
         uses: docker/build-push-action@v5
@@ -60,7 +60,7 @@ jobs:
             ${{ secrets.DOCKERHUB_USERNAME }}/notebook-shop-frontend:latest
             ${{ secrets.DOCKERHUB_USERNAME }}/notebook-shop-frontend:${{ github.sha }}
           cache-from: type=gha
-          cache-to: type=gha,mode=max
+          cache-to: type=gha,mode=min
 
       - name: Summary
         run: |

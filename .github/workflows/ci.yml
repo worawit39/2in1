@@ -92,7 +92,7 @@ jobs:
           push: false
           tags: notebook-shop-backend:ci
           cache-from: type=gha
-          cache-to: type=gha,mode=max
+          cache-to: type=gha,mode=min
 
       - name: Build frontend image (no push)
         uses: docker/build-push-action@v5
@@ -102,4 +102,4 @@ jobs:
           push: false
           tags: notebook-shop-frontend:ci
           cache-from: type=gha
-          cache-to: type=gha,mode=max
+          cache-to: type=gha,mode=min
