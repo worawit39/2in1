@@ -2,8 +2,8 @@
 # ใช้เฉพาะตอน deploy ขึ้น vps01 (เครื่องฝึกที่ใช้ร่วมกันทั้งชั้น) ผ่าน GitHub Actions CD เท่านั้น
 # ต่างจาก docker-compose.prod.yml ตรงที่:
 #   - ตั้งชื่อ container/network/volume ด้วย prefix ${APP_PREFIX} เพื่อไม่ให้ชนกับเพื่อนคนอื่นบนเครื่องเดียวกัน
-#   - publish ออก host แค่พอร์ตเดียว (frontend) ผ่าน ${APP_PORT} — backend และ db ไม่ publish ออก host เลย
-#     เข้าถึงได้แค่ผ่าน networkภายในของตัวเองเท่านั้น (frontend/nginx เป็นคน proxy /api ให้)
+#   - publish ออก host 2 พอร์ต: frontend ผ่าน ${APP_PORT} และ backend API โดยตรงผ่าน ${API_PORT}
+#     (db ไม่ publish ออก host เลย เข้าถึงได้แค่ผ่าน network ภายในของตัวเองเท่านั้น)
 #
 # ค่าตัวแปรทั้งหมดถูกเติมจาก .env ที่ CD workflow สร้างให้อัตโนมัติบนเครื่อง VPS ตอน deploy
 # (ดู .github/workflows/cd.yml job "deploy")
@@ -40,13 +40,16 @@ services:
       DB_PASSWORD: ${DB_PASSWORD:?DB_PASSWORD must be set}
       DB_NAME: ${DB_NAME:-laptop_market}
       PORT: 3000
+    ports:
+      - "${API_PORT:?API_PORT must be set (host port in the range confirmed with classmates)}:3000"
     networks:
       - appnet
     depends_on:
       db:
         condition: service_healthy
-    # ไม่ publish port ออก host โดยตั้งใจ — เข้าถึง backend ได้ผ่าน frontend (nginx reverse proxy) เท่านั้น
-    # ลดพื้นผิวที่เปิดออกสู่อินเทอร์เน็ตบนเครื่องที่ใช้ร่วมกับคนอื่น
+    # เปิดตรงตามที่ขอ (สำหรับทดสอบ API ด้วย Postman ฯลฯ) — ข้าม nginx proxy ของ frontend ไปเลย
+    # หมายเหตุ: เส้นทางนี้จะไม่ได้ security headers ที่ nginx.conf ใส่ให้ (X-Content-Type-Options ฯลฯ)
+    # แต่ authentication/rate-limit ของ backend เองยังทำงานปกติไม่ว่าจะเข้าทางไหน
 
   frontend:
     image: ${DOCKERHUB_USERNAME}/notebook-shop-frontend:${IMAGE_TAG:-latest}

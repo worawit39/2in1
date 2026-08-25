@@ -82,8 +82,9 @@ jobs:
   # และตั้งค่า GitHub Variables เพิ่ม (ในแท็บ "Variables" ถัดจาก "Secrets" หน้าเดียวกัน — ไม่ใช่ secret
   # เพราะไม่ใช่ข้อมูลลับ แค่ไม่อยาก hardcode ใน workflow):
   #   - APP_PREFIX : ชื่อเล่น/username ของตัวเอง ใช้กันชน container/network กับเพื่อนบนเครื่องเดียวกัน
-  #   - APP_PORT   : host port ที่เลือกไว้ (คุยกับเพื่อนแล้วว่าไม่ชนใคร ดูช่วงที่ถูกต้องกับอาจารย์ก่อน
-  #     เพราะคู่มือ vps01 มีบอกไว้ 2 ช่วงไม่ตรงกัน คือ 30000-30099 กับ 30100-30199)
+  #   - APP_PORT   : host port สำหรับ frontend (ยืนยันแล้วว่าใช้ช่วง 30100-30199 ตามตาราง "ข้อมูลเครื่อง")
+  #   - API_PORT   : host port สำหรับเรียก backend API ตรงๆ (เช่น ทดสอบด้วย Postman) — ต้องอยู่ช่วงเดียวกัน
+  #     และห้ามซ้ำกับ APP_PORT หรือพอร์ตของเพื่อนคนอื่น — ทั้งสองค่าถูกตรวจช่วงอัตโนมัติในขั้นตอนถัดไป
   # -------------------------------------------------------------------------
   deploy:
     name: Deploy to vps01
@@ -93,6 +94,29 @@ jobs:
     steps:
       - name: Checkout code
         uses: actions/checkout@v4
+
+      # กันพลาดตั้งพอร์ตนอกช่วงที่เปิดจริงจากอินเทอร์เน็ต (30100-30199 ตามตาราง "ข้อมูลเครื่อง" ในคู่มือ vps01)
+      # และกันตั้ง APP_PORT ชนกับ API_PORT ของตัวเอง — fail ทันทีก่อนจะไป deploy จริงถ้าค่าไม่ถูกต้อง
+      - name: Validate APP_PORT / API_PORT are in the allowed range
+        run: |
+          APP_PORT="${{ vars.APP_PORT }}"
+          API_PORT="${{ vars.API_PORT }}"
+
+          if [ -z "$APP_PORT" ] || [ -z "$API_PORT" ]; then
+            echo "::error::ต้องตั้งค่า APP_PORT และ API_PORT ใน repo Variables ก่อน deploy"
+            exit 1
+          fi
+          for PORT_VALUE in "$APP_PORT" "$API_PORT"; do
+            if [ "$PORT_VALUE" -lt 30100 ] || [ "$PORT_VALUE" -gt 30199 ]; then
+              echo "::error::พอร์ต $PORT_VALUE อยู่นอกช่วง 30100-30199 ที่เปิดจริงจากอินเทอร์เน็ต"
+              exit 1
+            fi
+          done
+          if [ "$APP_PORT" = "$API_PORT" ]; then
+            echo "::error::APP_PORT และ API_PORT ตั้งเป็นค่าเดียวกัน ($APP_PORT) ต้องไม่ซ้ำกัน"
+            exit 1
+          fi
+          echo "ports OK: APP_PORT=$APP_PORT API_PORT=$API_PORT"
 
       - name: Copy docker-compose.vps.yml to vps01
         uses: appleboy/scp-action@v0.1.7
@@ -123,6 +147,7 @@ jobs:
             IMAGE_TAG=${{ github.sha }}
             APP_PREFIX=${{ vars.APP_PREFIX }}
             APP_PORT=${{ vars.APP_PORT }}
+            API_PORT=${{ vars.API_PORT }}
             DB_PASSWORD=${{ secrets.DB_PASSWORD }}
             ENVEOF
 
@@ -134,5 +159,6 @@ jobs:
         run: |
           echo "### 🚀 Deployed to vps01" >> $GITHUB_STEP_SUMMARY
           echo "- Prefix: \`${{ vars.APP_PREFIX }}\`" >> $GITHUB_STEP_SUMMARY
-          echo "- URL: http://202.29.231.188:${{ vars.APP_PORT }}" >> $GITHUB_STEP_SUMMARY
+          echo "- Frontend: http://202.29.231.188:${{ vars.APP_PORT }}" >> $GITHUB_STEP_SUMMARY
+          echo "- Backend API (direct): http://202.29.231.188:${{ vars.API_PORT }}" >> $GITHUB_STEP_SUMMARY
           echo "- Image: \`${{ github.sha }}\`" >> $GITHUB_STEP_SUMMARY
