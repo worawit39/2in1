@@ -1,0 +1,69 @@
+name: CD Pipeline
+
+# CD (build + push image ขึ้น Docker Hub)
+# รันเฉพาะตอน push เข้า main หรือ master เท่านั้น
+# (ไม่รันตอน pull_request เพื่อกัน fork ที่ไม่น่าเชื่อถือ trigger การ push image)
+on:
+  push:
+    branches: ["main", "master"]
+
+# ยกเลิก run เก่าของ branch เดียวกันถ้ามีการ push ใหม่เข้ามาทับ ประหยัดเวลา CI/CD
+concurrency:
+  group: cd-${{ github.ref }}
+  cancel-in-progress: true
+
+jobs:
+  # -------------------------------------------------------------------------
+  # CD: Build + Push images ขึ้น Docker Hub
+  # ต้องตั้งค่า GitHub Secrets ก่อนใช้งาน (Settings -> Secrets and variables -> Actions):
+  #   - DOCKERHUB_USERNAME : ชื่อบัญชี Docker Hub
+  #   - DOCKERHUB_TOKEN    : Access Token จาก Docker Hub (Account Settings -> Security -> New Access Token)
+  # -------------------------------------------------------------------------
+  push:
+    name: Push Images to Docker Hub
+    runs-on: ubuntu-latest
+    steps:
+      - name: Checkout code
+        uses: actions/checkout@v4
+
+      - name: Set up Docker Buildx
+        uses: docker/setup-buildx-action@v3
+
+      - name: Log in to Docker Hub
+        uses: docker/login-action@v3
+        with:
+          username: ${{ secrets.DOCKERHUB_USERNAME }}
+          password: ${{ secrets.DOCKERHUB_TOKEN }}
+
+      # tag เป็นทั้ง :latest และ :<short-sha> เพื่อย้อนกลับ (rollback) ไป deploy image เวอร์ชันก่อนหน้าได้
+      # ชื่อ image ตรงกับที่ docker-compose.prod.yml อ้างอิงอยู่แล้ว
+      # (${DOCKERHUB_USERNAME}/notebook-shop-backend และ notebook-shop-frontend)
+      - name: Build & push backend image
+        uses: docker/build-push-action@v5
+        with:
+          context: ./backend
+          file: ./backend/Dockerfile
+          push: true
+          tags: |
+            ${{ secrets.DOCKERHUB_USERNAME }}/notebook-shop-backend:latest
+            ${{ secrets.DOCKERHUB_USERNAME }}/notebook-shop-backend:${{ github.sha }}
+          cache-from: type=gha
+          cache-to: type=gha,mode=max
+
+      - name: Build & push frontend image
+        uses: docker/build-push-action@v5
+        with:
+          context: ./frontend
+          file: ./frontend/Dockerfile
+          push: true
+          tags: |
+            ${{ secrets.DOCKERHUB_USERNAME }}/notebook-shop-frontend:latest
+            ${{ secrets.DOCKERHUB_USERNAME }}/notebook-shop-frontend:${{ github.sha }}
+          cache-from: type=gha
+          cache-to: type=gha,mode=max
+
+      - name: Summary
+        run: |
+          echo "### 🚀 Deployed images" >> $GITHUB_STEP_SUMMARY
+          echo "- \`${{ secrets.DOCKERHUB_USERNAME }}/notebook-shop-backend:${{ github.sha }}\`" >> $GITHUB_STEP_SUMMARY
+          echo "- \`${{ secrets.DOCKERHUB_USERNAME }}/notebook-shop-frontend:${{ github.sha }}\`" >> $GITHUB_STEP_SUMMARY
